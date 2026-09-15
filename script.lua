@@ -6,6 +6,7 @@ local PRIVATE = false
 
 local REQUIRED_PLAYERS = {
 	"royaldancersss",
+	"Splash_Kyrie",
 	-- Add more alts here later
 }
 
