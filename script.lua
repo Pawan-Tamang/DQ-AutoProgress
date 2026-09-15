@@ -1,4 +1,4 @@
--- DQ AutoProgress v3: no rejoin loop + start + minimize
+-- DQ AutoProgress v4: lock after start, no dungeon rejoin
 if getgenv then getgenv().DQAutoProgressQueued = true end
 local LOADER = [[if not game:IsLoaded() then game.Loaded:Wait() end loadstring(game:HttpGet("https://raw.githubusercontent.com/Pawan-Tamang/DQ-AutoProgress/main/script.lua"))()]]
 pcall(function()
@@ -18,6 +18,7 @@ task.spawn(function()
  if not PlayerGui then return end
 
  local SAVE_FILE = "DQAutoProgress.json"
+ local LOCK_FILE = "DQRunLock.txt"
  local Settings = {
   HostName = "kurokazahood",
   RequiredPlayers = {"royaldancersss"},
@@ -36,6 +37,48 @@ task.spawn(function()
   pcall(function() if writefile then writefile(SAVE_FILE, HttpService:JSONEncode(Settings)) end end)
  end
 
+ local LOBBY = {
+  [77649408247578] = true,
+  [115445507767090] = true,
+ }
+ local function inHub()
+  return LOBBY[game.PlaceId] == true
+ end
+
+ local function setLock(reason)
+  pcall(function()
+   if writefile then writefile(LOCK_FILE, HttpService:JSONEncode({
+    t = os.time(), reason = reason, place = game.PlaceId
+   })) end
+  end)
+  if getgenv then getgenv().DQRunLock = true end
+ end
+ local function clearLock()
+  pcall(function() if delfile and isfile and isfile(LOCK_FILE) then delfile(LOCK_FILE) end end)
+  if getgenv then getgenv().DQRunLock = false end
+ end
+ local function hasLock()
+  if getgenv and getgenv().DQRunLock then return true end
+  local ok, data = pcall(function()
+   if readfile and isfile and isfile(LOCK_FILE) then
+    return HttpService:JSONDecode(readfile(LOCK_FILE))
+   end
+  end)
+  if ok and type(data) == "table" and type(data.t) == "number" then
+   if os.time() - data.t < 20 * 60 then return true end
+  end
+  return false
+ end
+
+ -- back in real lobby after a run: drop lock only after sitting here a bit
+ if inHub() then
+  task.delay(12, function()
+   if inHub() then clearLock() end
+  end)
+ else
+  setLock("indungeon")
+ end
+
  local PROG = {
   {"Desert Temple",1,"Easy"},{"Desert Temple",6,"Medium"},{"Desert Temple",12,"Hard"},
   {"Desert Temple",20,"Insane"},{"Desert Temple",27,"Nightmare"},
@@ -49,6 +92,7 @@ task.spawn(function()
   {"Northern Lands",180,"Insane"},{"Northern Lands",185,"Nightmare"},
  }
  local State, joinedOnce, lobbySeen, lastCreate, lastStart, lastJoin = "Idle", false, {}, 0, 0, 0
+ local startedThisLobby = false
 
  local function remotes() return RS:FindFirstChild("remotes") end
  local function lvl()
@@ -71,7 +115,7 @@ task.spawn(function()
     local ok = pcall(function()
      if invoke and rem:IsA("RemoteFunction") then rem:InvokeServer() else rem:FireServer() end
     end)
-    if ok then return true, n end
+    if ok then return true end
    end
   end
   return false
@@ -87,11 +131,6 @@ task.spawn(function()
   end
   return nil
  end
- local LOBBY = {[77649408247578]=true,[115445507767090]=true}
- local function inHub()
-  if LOBBY[game.PlaceId] then return true end
-  return inLobbyFolder() ~= nil
- end
  local function parse(text)
   local t = {}
   for n in string.gmatch(text or "", "[^,%s]+") do table.insert(t,n) end
@@ -101,7 +140,6 @@ task.spawn(function()
   if lobbySeen[name:lower()] then return true end
   local lobby = hostLobby()
   if lobby then
-   if lobby.Name:lower() == name:lower() then return true end
    for _,d in ipairs(lobby:GetDescendants()) do
     if d.Name:lower() == name:lower() then return true end
     if (d:IsA("StringValue") or d:IsA("ObjectValue")) and tostring(d.Value):lower() == name:lower() then return true end
@@ -125,16 +163,13 @@ task.spawn(function()
    end
   end)
  end)
-
  local function clickNamed(words)
   for _,obj in ipairs(PlayerGui:GetDescendants()) do
    if obj:IsA("TextButton") then
     local t = string.lower(obj.Text or obj.Name or "")
     for _,w in ipairs(words) do
      if t == w or string.find(t, w, 1, true) then
-      pcall(function()
-       if typeof(firesignal) == "function" then firesignal(obj.MouseButton1Click) end
-      end)
+      pcall(function() if typeof(firesignal) == "function" then firesignal(obj.MouseButton1Click) end end)
       return true
      end
     end
@@ -143,8 +178,16 @@ task.spawn(function()
   return false
  end
 
+ local function canLobbyAct()
+  if not inHub() then return false end
+  if hasLock() then return false end
+  if startedThisLobby then return false end
+  return true
+ end
+
  local function createLobby()
-  if tick() - lastCreate < 8 then return false end
+  if not canLobbyAct() then return false end
+  if tick() - lastCreate < 10 then return false end
   lastCreate = tick()
   local r = remotes() if not r then return false end
   local c = r:FindFirstChild("createLobby") if not c then return false end
@@ -155,46 +198,55 @@ task.spawn(function()
  end
 
  local function startDungeon()
-  if tick() - lastStart < 8 then return false end
+  if not inHub() then return false end
+  if startedThisLobby then return false end
+  if tick() - lastStart < 15 then return false end
   lastStart = tick()
   State = "Starting"
-  print("[Host] starting dungeon")
+  print("[Host] starting once")
   local ok = fire({"startDungeon","startGame","startLobby","beginDungeon"}, false)
     or fire({"startDungeon","startGame","startLobby","beginDungeon"}, true)
     or clickNamed({"start","start dungeon","start game"})
+  startedThisLobby = true
+  setLock("started")
   return ok
  end
 
  local function joinHost()
-  if tick() - lastJoin < 6 then return false end
+  if not canLobbyAct() then return false end
+  if joinedOnce then return false end
+  if tick() - lastJoin < 10 then return false end
   lastJoin = tick()
   local r = remotes() if not r then return false end
   local j = r:FindFirstChild("joinDungeon") if not j then return false end
   local lobby = hostLobby() if not lobby then return false end
   State = "Joining"
   local ok = pcall(function() j:InvokeServer(lobby.Name) end)
-  if ok then print("[Joiner] joined", Settings.HostName) joinedOnce = true State = "InLobby" end
+  if ok then
+   print("[Joiner] joined", Settings.HostName)
+   joinedOnce = true
+   State = "InLobby"
+   setLock("joined")
+  end
   return ok
  end
 
  local function accept()
-  if not Settings.AutoAccept then return end
+  if not Settings.AutoAccept or not inHub() then return end
   fire({"acceptRequest","acceptJoin","acceptJoinRequest","acceptPlayer"}, false)
  end
 
- -- GUI
  local old = PlayerGui:FindFirstChild("DQAutoProgress") if old then old:Destroy() end
  local gui = Instance.new("ScreenGui") gui.Name = "DQAutoProgress" gui.ResetOnSpawn = false gui.Parent = PlayerGui
  local Window = Instance.new("Frame")
- Window.Size = UDim2.new(0, 360, 0, 520)
- Window.Position = UDim2.new(0, 20, 0.5, -260)
+ Window.Size = UDim2.new(0, 360, 0, 540)
+ Window.Position = UDim2.new(0, 20, 0.5, -270)
  Window.BackgroundColor3 = Color3.fromRGB(16,16,18)
  Window.BorderSizePixel = 0
  Window.Active = true
  Window.Draggable = true
  Window.Parent = gui
  Instance.new("UICorner", Window).CornerRadius = UDim.new(0, 8)
-
  local Top = Instance.new("Frame")
  Top.Size = UDim2.new(1, 0, 0, 32)
  Top.BackgroundColor3 = Color3.fromRGB(22,22,26)
@@ -229,7 +281,6 @@ task.spawn(function()
  CloseBtn.TextSize = 14
  CloseBtn.Parent = Top
  Instance.new("UICorner", CloseBtn).CornerRadius = UDim.new(0, 4)
-
  local OpenBtn = Instance.new("TextButton")
  OpenBtn.Size = UDim2.new(0, 70, 0, 28)
  OpenBtn.Position = UDim2.new(0, 20, 0, 20)
@@ -241,18 +292,14 @@ task.spawn(function()
  OpenBtn.Visible = false
  OpenBtn.Parent = gui
  Instance.new("UICorner", OpenBtn).CornerRadius = UDim.new(0, 6)
-
- local function setOpen(on)
-  Window.Visible = on
-  OpenBtn.Visible = not on
- end
+ local function setOpen(on) Window.Visible = on OpenBtn.Visible = not on end
  MinBtn.MouseButton1Click:Connect(function() setOpen(false) end)
  CloseBtn.MouseButton1Click:Connect(function() setOpen(false) end)
  OpenBtn.MouseButton1Click:Connect(function() setOpen(true) end)
  UIS.InputBegan:Connect(function(i,g) if not g and i.KeyCode == Enum.KeyCode.RightShift then setOpen(not Window.Visible) end end)
 
  local Status = Instance.new("TextLabel")
- Status.Size = UDim2.new(1, -16, 0, 90)
+ Status.Size = UDim2.new(1, -16, 0, 100)
  Status.Position = UDim2.new(0, 8, 0, 40)
  Status.BackgroundTransparency = 1
  Status.TextXAlignment = Enum.TextXAlignment.Left
@@ -263,7 +310,7 @@ task.spawn(function()
  Status.TextWrapped = true
  Status.Parent = Window
 
- local y = 140
+ local y = 150
  local function addToggle(name, default)
   local b = Instance.new("TextButton")
   b.Size = UDim2.new(1, -24, 0, 24)
@@ -290,10 +337,9 @@ task.spawn(function()
  local getWait = addToggle("Wait For Members", Settings.WaitForMembers)
  local getAcc = addToggle("Auto Accept", Settings.AutoAccept)
  local getStartD = addToggle("Auto Start Dungeon", Settings.AutoStartDungeon)
- local getReplay = addToggle("Auto Replay (off unless needed)", Settings.AutoReplay)
+ local getReplay = addToggle("Auto Replay", Settings.AutoReplay)
  local getMelee = addToggle("Auto Melee", Settings.AutoMelee)
  local getLoop = addToggle("Auto Loop", Settings.AutoStart)
-
  local HostBox = Instance.new("TextBox")
  HostBox.Size = UDim2.new(1, -24, 0, 24)
  HostBox.Position = UDim2.new(0, 12, 0, y)
@@ -324,7 +370,11 @@ task.spawn(function()
  StartNow.TextSize = 13
  StartNow.Parent = Window
  Instance.new("UICorner", StartNow).CornerRadius = UDim.new(0, 4)
- StartNow.MouseButton1Click:Connect(function() lastStart = 0 startDungeon() end)
+ StartNow.MouseButton1Click:Connect(function()
+  startedThisLobby = false
+  lastStart = 0
+  startDungeon()
+ end)
 
  local function sync()
   Settings.HostName = HostBox.Text:gsub("%s+", "")
@@ -339,15 +389,15 @@ task.spawn(function()
   while gui.Parent do
    sync()
    local map, diff = best()
-   Status.Text = string.format("Account: %s\nState: %s\nBest: %s %s\nLvl: %s  Hub: %s",
-    LP.Name, State, map, diff, tostring(lvl()), tostring(inHub()))
+   Status.Text = string.format("Account: %s\nState: %s\nBest: %s %s\nLvl: %s  Hub: %s\nLock: %s",
+    LP.Name, State, map, diff, tostring(lvl()), tostring(inHub()), tostring(hasLock()))
    task.wait(0.5)
   end
  end)
 
  task.spawn(function()
   while gui.Parent do
-   if Settings.AutoAccept and inHub() then accept() end
+   if Settings.AutoAccept and inHub() and not hasLock() then accept() end
    task.wait(2)
   end
  end)
@@ -356,40 +406,39 @@ task.spawn(function()
   task.wait(3)
   while gui.Parent do
    sync()
-   if Settings.AutoStart then
+   if not inHub() then
+    State = "InDungeon"
+   elseif Settings.AutoStart and canLobbyAct() then
     local isHost = LP.Name:lower() == Settings.HostName:lower()
-    if inHub() then
-     local lobby = hostLobby()
-     if isHost then
-      if not lobby then
-       createLobby()
-      else
-       if Settings.WaitForMembers and #Settings.RequiredPlayers > 0 and not allIn() then
-        State = "Waiting"
-        accept()
-       elseif Settings.AutoStartDungeon then
-        startDungeon()
-       else
-        State = "Ready"
-       end
-      end
+    local lobby = hostLobby()
+    if isHost then
+     if not lobby then
+      createLobby()
      else
-      if lobby and not joinedOnce then
-       joinHost()
-      elseif lobby then
-       State = "InLobby"
+      if Settings.WaitForMembers and #Settings.RequiredPlayers > 0 and not allIn() then
+       State = "Waiting"
+       accept()
+      elseif Settings.AutoStartDungeon then
+       startDungeon()
       else
-       joinedOnce = false
-       State = "Looking"
+       State = "Ready"
       end
      end
     else
-     State = "InDungeon"
+     if lobby and not joinedOnce then
+      joinHost()
+     elseif lobby then
+      State = "InLobby"
+     else
+      State = "Looking"
+     end
     end
+   elseif inHub() and hasLock() then
+    State = "Locked"
    end
    task.wait(1.5)
   end
  end)
 
- print("[DQ] v3 loaded — create is rate-limited, replay off, minimize added")
+ print("[DQ] v4 loaded — start locks the run, no rejoin")
 end)
