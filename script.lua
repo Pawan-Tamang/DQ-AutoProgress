@@ -1,4 +1,4 @@
--- DQ v7 next dungeon cycle + in-dungeon start
+-- DQ v8 start inside dungeon
 print("[DQ] file started")
 repeat task.wait() until game:IsLoaded()
 local Players = game:GetService("Players")
@@ -17,17 +17,23 @@ end)
 local RS = game:GetService("ReplicatedStorage")
 local UIS = game:GetService("UserInputService")
 local HttpService = game:GetService("HttpService")
+local VirtualInput = game:GetService("VirtualInputManager")
 local HUB = { [77649408247578] = true, [115445507767090] = true }
-local function isHub() return HUB[game.PlaceId] == true end
+local function lobbyFolder()
+ local g = workspace:FindFirstChild("games")
+ return g and g:FindFirstChild("inLobby")
+end
+-- Hub only if we can still see the town lobby list
+local function isHub()
+ return lobbyFolder() ~= nil
+end
 local MARK = "DQWasDungeon.txt"
 local function markDungeon()
  pcall(function() if writefile then writefile(MARK, tostring(os.time())) end end)
 end
 local function cameFromDungeon()
  local yes = false
- pcall(function()
-  if isfile and isfile(MARK) then yes = true if delfile then delfile(MARK) end end
- end)
+ pcall(function() if isfile and isfile(MARK) then yes = true if delfile then delfile(MARK) end end end)
  return yes
 end
 
@@ -64,11 +70,8 @@ local PROG = {
  {"Enchanted Forest",170,"Insane"},{"Enchanted Forest",175,"Nightmare"},
  {"Northern Lands",180,"Insane"},{"Northern Lands",185,"Nightmare"},
 }
-local st = { name = isHub() and "Hub" or "Dungeon", created = false, joined = false, started = false, dungStart = false, seen = {} }
-if isHub() and cameFromDungeon() then
- st.name = "NextBest"
- print("[DQ] back from dungeon — next best")
-end
+local st = { name = isHub() and "Hub" or "Dungeon", created = false, joined = false, started = false, seen = {}, lastStart = 0 }
+if isHub() and cameFromDungeon() then st.name = "NextBest" print("[DQ] back from dungeon") end
 if not isHub() then markDungeon() end
 
 local function rem() return RS:FindFirstChild("remotes") end
@@ -82,12 +85,8 @@ local function pick()
  if S.AutoBest then for _,d in ipairs(PROG) do if lv >= d[2] then cur = d else break end end end
  return cur[1], cur[3]
 end
-local function folder()
- local g = workspace:FindFirstChild("games")
- return g and g:FindFirstChild("inLobby")
-end
 local function hostLobby()
- local f = folder() if not f then return nil end
+ local f = lobbyFolder() if not f then return nil end
  for _,l in ipairs(f:GetChildren()) do if l.Name:lower() == S.HostName:lower() then return l end end
  return nil
 end
@@ -99,7 +98,32 @@ local function fire(list, inv)
    local ok = pcall(function()
     if inv and x:IsA("RemoteFunction") then x:InvokeServer() else x:FireServer() end
    end)
-   if ok then return true end
+   if ok then print("[DQ] fired", n, inv and "invoke" or "fire") return true end
+  end
+ end
+ return false
+end
+local function clickStartButtons()
+ local words = {"start","start dungeon","start game","begin","play","ready"}
+ for _,obj in ipairs(PlayerGui:GetDescendants()) do
+  if obj:IsA("TextButton") or obj:IsA("ImageButton") then
+   local t = string.lower((obj.Text or "") .. " " .. (obj.Name or ""))
+   for _,w in ipairs(words) do
+    if string.find(t, w, 1, true) then
+     pcall(function()
+      if typeof(firesignal) == "function" then firesignal(obj.MouseButton1Click) end
+      if typeof(getconnections) == "function" then
+       for _,c in ipairs(getconnections(obj.MouseButton1Click)) do pcall(function() c:Fire() end) end
+      end
+      local p = obj.AbsolutePosition
+      local s = obj.AbsoluteSize
+      VirtualInput:SendMouseButtonEvent(p.X + s.X/2, p.Y + s.Y/2, 0, true, game, 1)
+      VirtualInput:SendMouseButtonEvent(p.X + s.X/2, p.Y + s.Y/2, 0, false, game, 1)
+     end)
+     print("[DQ] clicked", obj.Name, obj.Text)
+     return true
+    end
+   end
   end
  end
  return false
@@ -133,6 +157,7 @@ pcall(function()
  end)
 end)
 local function isHost() return LP.Name:lower() == S.HostName:lower() end
+local STARTS = {"startDungeon","startGame","beginDungeon","start","playDungeon"}
 local function doCreate()
  if st.created or st.started then return end
  local r = rem() if not r then return end
@@ -144,15 +169,17 @@ local function doCreate()
  if ok then st.created = true st.name = "Created" end
 end
 local function doStart()
- if st.started then return end
+ if tick() - st.lastStart < 4 then return end
+ st.lastStart = tick()
  st.started = true
  st.name = "Starting"
- print("[DQ] start lobby")
- fire({"startDungeon"}, false)
- fire({"startDungeon"}, true)
+ print("[DQ] start")
+ fire(STARTS, false)
+ fire(STARTS, true)
+ clickStartButtons()
 end
 local function doJoin()
- if st.joined or st.started then return end
+ if st.joined then return end
  local r = rem() if not r then return end
  local j = r:FindFirstChild("joinDungeon") if not j then return end
  local lobby = hostLobby() if not lobby then return end
@@ -161,20 +188,13 @@ local function doJoin()
  local ok = pcall(function() j:InvokeServer(lobby.Name) end)
  if ok then st.joined = true st.name = "InParty" end
 end
-local function dungeonStart()
- if st.dungStart then return end
- st.dungStart = true
- print("[DQ] in-dungeon start")
- fire({"startDungeon","startGame","beginDungeon"}, false)
- fire({"startDungeon","startGame","beginDungeon"}, true)
-end
 local function melee()
  if not S.AutoMelee then return end
  local char = LP.Character if not char then return end
  local hum = char:FindFirstChildOfClass("Humanoid")
  local root = char:FindFirstChild("HumanoidRootPart")
  if not hum or not root then return end
- local bestM, bestD = nil, 200
+ local bestM, bestD = nil, 220
  for _,m in ipairs(workspace:GetDescendants()) do
   if m:IsA("Model") and m ~= char then
    local mh = m:FindFirstChildOfClass("Humanoid")
@@ -187,9 +207,12 @@ local function melee()
    end
   end
  end
- if not bestM then return end
- local t = bestM:FindFirstChild("HumanoidRootPart") or bestM.PrimaryPart
- if t then pcall(function() hum:MoveTo(t.Position) end) end
+ if bestM then
+  local t = bestM:FindFirstChild("HumanoidRootPart") or bestM.PrimaryPart
+  if t then pcall(function() hum:MoveTo(t.Position) end) end
+ else
+  pcall(function() hum:Move(Vector3.new(0,0,-1), true) end)
+ end
  local tool = char:FindFirstChildOfClass("Tool") or LP.Backpack:FindFirstChildOfClass("Tool")
  if tool and tool.Parent ~= char then pcall(function() hum:EquipTool(tool) end) end
  tool = char:FindFirstChildOfClass("Tool")
@@ -250,7 +273,7 @@ local startBtn = Instance.new("TextButton") startBtn.Size = UDim2.new(1,-24,0,28
 startBtn.BackgroundColor3 = Color3.fromRGB(60,140,80) startBtn.Text = "Start Once" startBtn.TextColor3 = Color3.new(1,1,1)
 startBtn.Font = Enum.Font.GothamBold startBtn.TextSize = 13 startBtn.Parent = win
 Instance.new("UICorner", startBtn).CornerRadius = UDim.new(0,4)
-startBtn.MouseButton1Click:Connect(function() st.started = false doStart() end)
+startBtn.MouseButton1Click:Connect(function() st.lastStart = 0 doStart() end)
 
 local waitT = 0
 task.spawn(function()
@@ -258,8 +281,8 @@ task.spawn(function()
   S.HostName = hostBox.Text:gsub("%s+","")
   S.Members = parse(memBox.Text)
   local map, diff = pick()
-  status.Text = string.format("%s\n%s\nNEXT %s %s  lv %s\ncreated=%s joined=%s started=%s",
-   LP.Name, st.name, map, diff, tostring(level()), tostring(st.created), tostring(st.joined), tostring(st.started))
+  status.Text = string.format("%s\n%s\nNEXT %s %s  lv %s\nhub=%s place=%s",
+   LP.Name, st.name, map, diff, tostring(level()), tostring(isHub()), tostring(game.PlaceId))
   task.wait(0.4)
  end
 end)
@@ -270,7 +293,7 @@ task.spawn(function()
   if not isHub() then
    st.name = "InDungeon"
    markDungeon()
-   dungeonStart()
+   if S.AutoStart then doStart() end
    melee()
   else
    if S.AutoAccept and isHost() and not st.started then
@@ -283,21 +306,19 @@ task.spawn(function()
      st.created = true
      if S.WaitMembers and not partyReady() and not st.started then
       st.name = "Waiting"
-      waitT += 1.2
+      waitT += 1
       if waitT >= S.Timeout and S.AutoStart then doStart() end
-     elseif S.AutoStart and not st.started then
+     elseif S.AutoStart then
       doStart()
-     elseif st.started then
-      st.name = "Started-waitTP"
      end
     end
    else
-    if S.AutoJoin and hostLobby() and not st.joined and not st.started then
+    if S.AutoJoin and hostLobby() and not st.joined then
      doJoin()
     elseif st.joined then st.name = "InParty" else st.name = "Looking" end
    end
   end
-  task.wait(0.35)
+  task.wait(0.4)
  end
 end)
-print("[DQ] v7 ready")
+print("[DQ] v8 ready")
