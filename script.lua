@@ -1,16 +1,14 @@
 -- ====================== Dungeon Quest AutoProgress ======================
--- GUI Version
+-- GUI Version + Auto Start
 
 if not game:IsLoaded() then game.Loaded:Wait() end
-task.wait(1)
+task.wait(1.5)
 
 local Players = game:GetService("Players")
 local RS = game:GetService("ReplicatedStorage")
-local TweenService = game:GetService("TweenService")
-local UserInputService = game:GetService("UserInputService")
 local LP = Players.LocalPlayer or Players.PlayerAdded:Wait()
 
--- ====================== SETTINGS (saved in memory) ======================
+-- ====================== SETTINGS ======================
 local Settings = {
 	HostName = "kurokazahood",
 	RequiredPlayers = {"royaldancersss"},
@@ -132,8 +130,8 @@ ScreenGui.Parent = LP:WaitForChild("PlayerGui")
 
 local Main = Instance.new("Frame")
 Main.Name = "Main"
-Main.Size = UDim2.new(0, 320, 0, 380)
-Main.Position = UDim2.new(0.5, -160, 0.5, -190)
+Main.Size = UDim2.new(0, 320, 0, 400)
+Main.Position = UDim2.new(0.5, -160, 0.5, -200)
 Main.BackgroundColor3 = Color3.fromRGB(25, 25, 30)
 Main.BorderSizePixel = 0
 Main.Active = true
@@ -240,11 +238,7 @@ local function createToggle(text, y, default)
 		circle.Position = state and UDim2.new(1, -19, 0.5, -8) or UDim2.new(0, 3, 0.5, -8)
 	end)
 
-	return function() return state end, function(v)
-		state = v
-		toggle.BackgroundColor3 = state and Color3.fromRGB(100, 70, 200) or Color3.fromRGB(60, 60, 70)
-		circle.Position = state and UDim2.new(1, -19, 0.5, -8) or UDim2.new(0, 3, 0.5, -8)
-	end
+	return function() return state end
 end
 
 createLabel("Host Username", 50)
@@ -253,12 +247,12 @@ local HostBox = createTextBox("Host username...", 72, Settings.HostName)
 createLabel("Member Usernames (comma separated)", 110)
 local MembersBox = createTextBox("alt1, alt2, alt3", 132, table.concat(Settings.RequiredPlayers, ", "))
 
-local getHardcore, setHardcore = createToggle("Hardcore Lobby", 175, Settings.Hardcore)
-local getPrivate, setPrivate = createToggle("Private Lobby", 210, Settings.Private)
+local getHardcore = createToggle("Hardcore Lobby", 175, Settings.Hardcore)
+local getPrivate = createToggle("Private Lobby", 210, Settings.Private)
 
 local StartBtn = Instance.new("TextButton")
 StartBtn.Size = UDim2.new(1, -30, 0, 36)
-StartBtn.Position = UDim2.new(0, 15, 0, 260)
+StartBtn.Position = UDim2.new(0, 15, 0, 255)
 StartBtn.BackgroundColor3 = Color3.fromRGB(100, 70, 200)
 StartBtn.BorderSizePixel = 0
 StartBtn.Text = "Start Script"
@@ -272,10 +266,10 @@ StartCorner.CornerRadius = UDim.new(0, 8)
 StartCorner.Parent = StartBtn
 
 local StatusLabel = Instance.new("TextLabel")
-StatusLabel.Size = UDim2.new(1, -30, 0, 40)
-StatusLabel.Position = UDim2.new(0, 15, 0, 310)
+StatusLabel.Size = UDim2.new(1, -30, 0, 50)
+StatusLabel.Position = UDim2.new(0, 15, 0, 300)
 StatusLabel.BackgroundTransparency = 1
-StatusLabel.Text = "Ready"
+StatusLabel.Text = "Auto-starting in 5 seconds...\n(You can still change settings)"
 StatusLabel.TextColor3 = Color3.fromRGB(160, 160, 170)
 StatusLabel.Font = Enum.Font.Gotham
 StatusLabel.TextSize = 12
@@ -299,7 +293,7 @@ end)
 -- ====================== MAIN LOGIC ======================
 local running = false
 
-StartBtn.MouseButton1Click:Connect(function()
+local function startScript()
 	if running then return end
 	running = true
 	StartBtn.Text = "Running..."
@@ -361,6 +355,20 @@ StartBtn.MouseButton1Click:Connect(function()
 			end
 		end)
 	end
+end
+
+StartBtn.MouseButton1Click:Connect(startScript)
+
+-- Auto-start after 5 seconds (for auto-execute)
+task.spawn(function()
+	for i = 5, 1, -1 do
+		if running then return end
+		StatusLabel.Text = "Auto-starting in " .. i .. " seconds...\n(You can still change settings)"
+		task.wait(1)
+	end
+	if not running then
+		startScript()
+	end
 end)
 
-print("[DQ AutoProgress] GUI loaded. Set Host + Members then click Start.")
+print("[DQ AutoProgress] GUI loaded. Auto-starts in 5 seconds.")
