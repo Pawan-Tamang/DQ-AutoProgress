@@ -49,7 +49,8 @@ local function save() pcall(function() if writefile then writefile("DQAutoProgre
 local PROG = {
  {"Desert Temple",1,"Easy"},{"Desert Temple",6,"Medium"},{"Desert Temple",12,"Hard"},
  {"Desert Temple",20,"Insane"},{"Desert Temple",27,"Nightmare"},
- {"Winter Outpost",30,"Insane"},{"Winter Outpost",55,"Nightmare"},
+ {"Winter Outpost",33,"Easy"},{"Winter Outpost",40,"Medium"},{"Winter Outpost",45,"Hard"},
+ {"Winter Outpost",50,"Insane"},{"Winter Outpost",55,"Nightmare"},
  {"Pirate Island",60,"Insane"},{"Pirate Island",65,"Nightmare"},
  {"King's Castle",70,"Insane"},{"King's Castle",75,"Nightmare"},
  {"The Underworld",80,"Insane"},{"The Underworld",85,"Nightmare"},
