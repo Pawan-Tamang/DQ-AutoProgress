@@ -1,5 +1,7 @@
--- DQ v12 click-only + 5s start + finish cycle
-print("[DQ] v12", game.PlaceId)
+-- DQ v13 false-finish fix
+if getgenv and getgenv().DQV13 then return end
+if getgenv then getgenv().DQV13 = true end
+print("[DQ] v13", game.PlaceId)
 repeat task.wait() until game:IsLoaded()
 local Players = game:GetService("Players")
 repeat task.wait() until Players.LocalPlayer
@@ -35,9 +37,6 @@ pcall(function()
   if type(d) == "table" then for k,v in pairs(d) do S[k] = v end end
  end
 end)
-local function save()
- pcall(function() if writefile then writefile("DQAutoProgress.json", HttpService:JSONEncode(S)) end end)
-end
 
 local PROG = {
  {"Desert Temple",1,"Easy"},{"Desert Temple",6,"Medium"},{"Desert Temple",12,"Hard"},
@@ -59,15 +58,11 @@ local PROG = {
 }
 local RUN = "DQRun.json"
 local function saveRun(map, diff, lv)
- pcall(function()
-  if writefile then writefile(RUN, HttpService:JSONEncode({map=map,diff=diff,lv=lv,t=os.time()})) end
- end)
+ pcall(function() if writefile then writefile(RUN, HttpService:JSONEncode({map=map,diff=diff,lv=lv,t=os.time()})) end end)
 end
 local function loadRun()
  local out
- pcall(function()
-  if readfile and isfile and isfile(RUN) then out = HttpService:JSONDecode(readfile(RUN)) end
- end)
+ pcall(function() if readfile and isfile and isfile(RUN) then out = HttpService:JSONDecode(readfile(RUN)) end end)
  return type(out) == "table" and out or nil
 end
 
@@ -116,14 +111,10 @@ end
 local function replay()
  print("[DQ] replay")
  return fireNamed("replay", false) or fireNamed("replayDungeon", false) or fireNamed("playAgain", false)
-  or fireNamed("replay", true) or fireNamed("replayDungeon", true)
 end
 local function returnLobby()
  print("[DQ] return lobby")
- return fireNamed("returnToLobby", false) or fireNamed("leaveDungeon", false) or fireNamed("returnToLobby", true)
-end
-local function parse(t)
- local a = {} for n in string.gmatch(t or "", "[^,%s]+") do table.insert(a, n) end return a
+ return fireNamed("returnToLobby", false) or fireNamed("leaveDungeon", false)
 end
 local function memberHere(name)
  if st.seen[name:lower()] then return true end
@@ -145,25 +136,33 @@ pcall(function()
 end)
 local function isHost() return LP.Name:lower() == S.HostName:lower() end
 
-local FINISH_WORDS = {"victory","dungeon complete","you win","replay","play again","return to lobby","boss defeated"}
-local function guiSaysDone()
+-- Only victory screens, NOT the always-visible Return to Lobby button
+local WIN = {"victory","dungeon complete","you win","boss defeated","mission complete","stage clear"}
+local function guiSaysWin()
  for _,o in ipairs(PlayerGui:GetDescendants()) do
-  if o:IsA("TextLabel") or o:IsA("TextButton") then
+  if (o:IsA("TextLabel") or o:IsA("TextButton")) and o.Visible ~= false then
    local t = string.lower(o.Text or "")
-   for _,w in ipairs(FINISH_WORDS) do
-    if string.find(t, w, 1, true) and o.Visible ~= false then return true, t end
+   for _,w in ipairs(WIN) do
+    if t == w or string.find(t, w, 1, true) then return true end
    end
   end
  end
  return false
 end
+local function isPlayerModel(model)
+ for _,p in ipairs(Players:GetPlayers()) do
+  if p.Character == model or p.Name == model.Name then return true end
+ end
+ return false
+end
 local function bossDead()
  for _,m in ipairs(workspace:GetDescendants()) do
-  if m:IsA("Model") then
+  if m:IsA("Model") and not isPlayerModel(m) then
    local n = string.lower(m.Name)
-   if string.find(n, "boss", 1, true) or string.find(n, "king", 1, true) or string.find(n, "golem", 1, true) or string.find(n, "elemental", 1, true) then
+   local tagged = m:FindFirstChild("Boss") or m:GetAttribute("IsBoss")
+   if tagged or n == "boss" or string.sub(n, -4) == "boss" or string.find(n, "boss ", 1, true) then
     local hum = m:FindFirstChildOfClass("Humanoid")
-    if hum and hum.Health <= 0 then return true, m.Name end
+    if hum and hum.Health <= 0 then return true end
    end
   end
  end
@@ -173,8 +172,8 @@ local function clickAttack()
  if not S.AutoClick or not isDungeon() or st.finished then return end
  local char = LP.Character
  if char then
-  local tool = char:FindFirstChildOfClass("Tool") or LP.Backpack:FindFirstChildOfClass("Tool")
   local hum = char:FindFirstChildOfClass("Humanoid")
+  local tool = char:FindFirstChildOfClass("Tool") or LP.Backpack:FindFirstChildOfClass("Tool")
   if tool and hum and tool.Parent ~= char then pcall(function() hum:EquipTool(tool) end) end
   tool = char:FindFirstChildOfClass("Tool")
   if tool then pcall(function() tool:Activate() end) end
@@ -194,7 +193,7 @@ local function onFinished()
  if st.finished then return end
  st.finished = true
  st.name = "Finished"
- print("[DQ] dungeon finished")
+ print("[DQ] real finish")
  task.wait(2)
  if needNextDungeon() then
   st.name = "NextBest-return"
@@ -202,7 +201,7 @@ local function onFinished()
  else
   st.name = "Replay"
   if S.AutoReplay then replay() end
-  task.delay(8, function() st.finished = false end)
+  task.delay(12, function() st.finished = false end)
  end
 end
 
@@ -247,11 +246,6 @@ if isDungeon() then
  task.spawn(function()
   st.name = "Wait5s"
   task.wait(5)
-  if not partyReady() then
-   st.name = "WaitParty"
-   local t = 0
-   while t < 20 and not partyReady() do task.wait(1) t += 1 end
-  end
   st.started = true
   st.name = "StartRemote"
   fireStart()
@@ -263,11 +257,10 @@ if isDungeon() then
   end
  end)
  task.spawn(function()
-  task.wait(8)
+  task.wait(20)
   while gui.Parent and isDungeon() do
-   local done = guiSaysDone() or bossDead()
-   if done then onFinished() end
-   task.wait(1.5)
+   if guiSaysWin() or bossDead() then onFinished() end
+   task.wait(2)
   end
  end)
 else
@@ -286,9 +279,7 @@ else
       waitT += 1.2
       if waitT >= S.Timeout then st.started = true fireStart() st.name = "Started" end
      elseif S.AutoStart and not st.started then
-      st.started = true
-      fireStart()
-      st.name = "Started"
+      st.started = true fireStart() st.name = "Started"
      end
     end
    else
