@@ -1,7 +1,7 @@
--- DQ v14 safe cycle
+-- DQ v15 level+play+swing
 if getgenv and getgenv().DQRunning then return end
 if getgenv then getgenv().DQRunning = true end
-print("[DQ] v14", game.PlaceId)
+print("[DQ] v15", game.PlaceId)
 repeat task.wait() until game:IsLoaded()
 local Players = game:GetService("Players")
 repeat task.wait() until Players.LocalPlayer
@@ -25,8 +25,7 @@ local function isHub() return HUB[game.PlaceId] == true end
 local function isDungeon() return game.PlaceId == DUNGEON end
 
 local S = {
- HostName = "kurokazahood",
- Members = {"royaldancersss"},
+ HostName = "kurokazahood", Members = {"royaldancersss"},
  AutoBest = true, Hardcore = true, Private = false,
  WaitMembers = true, AutoCreate = true, AutoJoin = true, AutoStart = true,
  AutoClick = true, AutoReplay = true, Timeout = 25,
@@ -57,8 +56,8 @@ local PROG = {
  {"Northern Lands",180,"Insane"},{"Northern Lands",185,"Nightmare"},
 }
 local RUN = "DQRun.json"
-local function saveRun(map, diff)
- pcall(function() if writefile then writefile(RUN, HttpService:JSONEncode({map=map,diff=diff,t=os.time()})) end end)
+local function saveRun(map, diff, lv)
+ pcall(function() if writefile then writefile(RUN, HttpService:JSONEncode({map=map,diff=diff,lv=lv,t=os.time()})) end end)
 end
 local function loadRun()
  local out
@@ -66,17 +65,48 @@ local function loadRun()
  return type(out) == "table" and out or nil
 end
 
-local st = { name = isDungeon() and "InDungeon" or "Hub", created = false, joined = false, started = false, finished = false, seen = {} }
+local st = { name = isDungeon() and "InDungeon" or "Hub", created = false, joined = false, started = false, finished = false, seen = {}, lastPlay = 0 }
 local function rem() return RS:FindFirstChild("remotes") end
+
+local function levelFromGui()
+ local best = 0
+ local ps = PlayerGui:FindFirstChild("playerStatus") or PlayerGui:FindFirstChild("PlayerStatus")
+ if ps then
+  for _,d in ipairs(ps:GetDescendants()) do
+   if d.Name:lower() == "level" or d.Name:lower() == "lvl" then
+    local n = tonumber(tostring(d.Text or d.Value or ""):match("%d+"))
+    if n and n > best then best = n end
+   end
+  end
+ end
+ for _,d in ipairs(PlayerGui:GetDescendants()) do
+  if d:IsA("TextLabel") or d:IsA("TextButton") then
+   local n = string.match(string.lower(d.Text or ""), "level%s*:?%s*(%d+)")
+    or string.match(d.Text or "", "^%s*(%d+)%s*$")
+   n = tonumber(n)
+   if n and n >= 1 and n <= 300 and n > best then
+    if d.Name:lower():find("level") or d.Name:lower():find("lvl") then best = n end
+   end
+  end
+ end
+ return best
+end
 local function level()
+ local best = 1
  local ls = LP:FindFirstChild("leaderstats")
- if ls and ls:FindFirstChild("Level") then return tonumber(ls.Level.Value) or 1 end
- return 1
+ if ls then
+  local l = ls:FindFirstChild("Level") or ls:FindFirstChild("level") or ls:FindFirstChild("Lvl")
+  if l then best = math.max(best, tonumber(l.Value) or 1) end
+ end
+ best = math.max(best, levelFromGui())
+ local run = loadRun()
+ if run and tonumber(run.lv) and (tonumber(run.lv) or 0) > best then best = tonumber(run.lv) end
+ return best
 end
 local function pick()
  local lv, cur = level(), PROG[1]
  if S.AutoBest then for _,d in ipairs(PROG) do if lv >= d[2] then cur = d else break end end end
- return cur[1], cur[3]
+ return cur[1], cur[3], lv
 end
 local function folder()
  local g = workspace:FindFirstChild("games")
@@ -96,11 +126,39 @@ local function fireNamed(name, invoke, ...)
  if ok then print("[DQ]", name) end
  return ok
 end
-local function fireStart() return fireNamed("startDungeon", false) end
+local function clickText(words)
+ for _,o in ipairs(PlayerGui:GetDescendants()) do
+  if o:IsA("TextButton") and o.Visible ~= false then
+   local t = string.lower((o.Text or "") .. " " .. (o.Name or ""))
+   for _,w in ipairs(words) do
+    if t == w or string.find(t, w, 1, true) then
+     pcall(function()
+      if typeof(firesignal) == "function" then firesignal(o.MouseButton1Click) end
+      if typeof(getconnections) == "function" then
+       for _,c in ipairs(getconnections(o.MouseButton1Click)) do pcall(function() c:Fire() end) end
+      end
+     end)
+     print("[DQ] click", o.Text or o.Name)
+     return true
+    end
+   end
+  end
+ end
+ return false
+end
+local function clickPlay()
+ if tick() - st.lastPlay < 4 then return end
+ st.lastPlay = tick()
+ return clickText({"play", "play game", "start", "start dungeon"})
+end
+local function fireStart()
+ fireNamed("startDungeon", false)
+ clickPlay()
+end
 local function createLobby()
- local map, diff = pick()
- print("[DQ] create", map, diff)
- saveRun(map, diff)
+ local map, diff, lv = pick()
+ print("[DQ] create", map, diff, "lv", lv)
+ saveRun(map, diff, lv)
  return fireNamed("createLobby", true, map, diff, 0, S.Hardcore, S.Private, false)
 end
 local function joinHost()
@@ -111,6 +169,7 @@ end
 local function replay()
  print("[DQ] replay")
  return fireNamed("replay", false) or fireNamed("replayDungeon", false) or fireNamed("playAgain", false)
+  or clickText({"replay", "play again"})
 end
 local function memberHere(name)
  if st.seen[name:lower()] then return true end
@@ -131,84 +190,71 @@ pcall(function()
  end)
 end)
 local function isHost() return LP.Name:lower() == S.HostName:lower() end
-
 local WIN = {"victory","dungeon complete","you win","boss defeated","mission complete"}
 local function guiSaysWin()
  for _,o in ipairs(PlayerGui:GetDescendants()) do
   if (o:IsA("TextLabel") or o:IsA("TextButton")) and o.Visible ~= false then
    local t = string.lower(o.Text or "")
-   if string.find(t, "return to lobby", 1, true) then
-    -- ignore always-on leave button
-   else
-    for _,w in ipairs(WIN) do
-     if string.find(t, w, 1, true) then return true end
-    end
+   if not string.find(t, "return to lobby", 1, true) then
+    for _,w in ipairs(WIN) do if string.find(t, w, 1, true) then return true end end
    end
   end
  end
  return false
 end
-local function clickAttack()
- if not S.AutoClick or not isDungeon() or st.finished then return end
+local function swing()
+ if not S.AutoClick or not isDungeon() then return end
  local char = LP.Character if not char then return end
- local hum = char:FindFirstChildOfClass("Humanoid")
- local tool = char:FindFirstChildOfClass("Tool") or LP.Backpack:FindFirstChildOfClass("Tool")
- if tool and hum and tool.Parent ~= char then pcall(function() hum:EquipTool(tool) end) end
+ local hum = char:FindFirstChildOfClass("Humanoid") if not hum then return end
+ local tool = char:FindFirstChildOfClass("Tool")
+ if not tool then
+  tool = LP.Backpack:FindFirstChildOfClass("Tool")
+  if tool then pcall(function() hum:EquipTool(tool) end) task.wait() end
+ end
  tool = char:FindFirstChildOfClass("Tool")
- if tool then pcall(function() tool:Activate() end) end
-end
-local function needNext()
- local run = loadRun()
- local map, diff = pick()
- return run and (run.map ~= map or run.diff ~= diff)
+ if tool then
+  pcall(function() tool:Activate() end)
+  pcall(function() tool:Activate() end)
+ end
 end
 local function onFinished()
  if st.finished then return end
  st.finished = true
  print("[DQ] victory")
- if needNext() then
-  st.name = "NeedNext-waitHub"
-  -- do NOT fire leave/return. wait until the game sends you back.
- else
-  st.name = "Replay"
-  if isHost() and S.AutoReplay then replay() end
-  task.delay(15, function() st.finished = false end)
- end
+ st.name = "Replay"
+ if isHost() and S.AutoReplay then replay() end
+ task.delay(15, function() st.finished = false end)
 end
 
 local old = PlayerGui:FindFirstChild("DQAutoProgress") if old then old:Destroy() end
 local gui = Instance.new("ScreenGui") gui.Name = "DQAutoProgress" gui.ResetOnSpawn = false
 pcall(function() gui.Parent = PlayerGui end)
 if not gui.Parent then pcall(function() gui.Parent = game:GetService("CoreGui") end) end
-local win = Instance.new("Frame")
-win.Size = UDim2.new(0,330,0,190) win.Position = UDim2.new(0,16,0.5,-95)
-win.BackgroundColor3 = Color3.fromRGB(16,16,18) win.BorderSizePixel = 0
-win.Active = true win.Draggable = true win.Parent = gui
-Instance.new("UICorner", win).CornerRadius = UDim.new(0,8)
+local frame = Instance.new("Frame")
+frame.Size = UDim2.new(0,330,0,190) frame.Position = UDim2.new(0,16,0.5,-95)
+frame.BackgroundColor3 = Color3.fromRGB(16,16,18) frame.BorderSizePixel = 0
+frame.Active = true frame.Draggable = true frame.Parent = gui
+Instance.new("UICorner", frame).CornerRadius = UDim.new(0,8)
 local title = Instance.new("TextLabel") title.Size = UDim2.new(1,-36,0,28) title.BackgroundTransparency = 1
 title.Text = "  kuya" title.TextXAlignment = Enum.TextXAlignment.Left title.TextColor3 = Color3.fromRGB(230,230,235)
-title.Font = Enum.Font.Gotham title.TextSize = 16 title.Parent = win
+title.Font = Enum.Font.Gotham title.TextSize = 16 title.Parent = frame
 local minB = Instance.new("TextButton") minB.Size = UDim2.new(0,24,0,22) minB.Position = UDim2.new(1,-30,0,4)
-minB.BackgroundColor3 = Color3.fromRGB(40,40,48) minB.Text = "_" minB.TextColor3 = Color3.new(1,1,1) minB.Parent = win
+minB.BackgroundColor3 = Color3.fromRGB(40,40,48) minB.Text = "_" minB.TextColor3 = Color3.new(1,1,1) minB.Parent = frame
 local open = Instance.new("TextButton") open.Size = UDim2.new(0,64,0,26) open.Position = UDim2.new(0,16,0,16)
 open.BackgroundColor3 = Color3.fromRGB(140,90,255) open.Text = "kuya" open.TextColor3 = Color3.new(1,1,1)
 open.Visible = false open.Parent = gui
-minB.MouseButton1Click:Connect(function() win.Visible = false open.Visible = true end)
-open.MouseButton1Click:Connect(function() win.Visible = true open.Visible = false end)
+minB.MouseButton1Click:Connect(function() frame.Visible = false open.Visible = true end)
+open.MouseButton1Click:Connect(function() frame.Visible = true open.Visible = false end)
 local status = Instance.new("TextLabel")
 status.Size = UDim2.new(1,-16,0,90) status.Position = UDim2.new(0,8,0,32) status.BackgroundTransparency = 1
 status.TextXAlignment = Enum.TextXAlignment.Left status.TextYAlignment = Enum.TextYAlignment.Top
-status.TextColor3 = Color3.fromRGB(200,200,210) status.Font = Enum.Font.Gotham status.TextSize = 13 status.TextWrapped = true status.Parent = win
-local btn = Instance.new("TextButton") btn.Size = UDim2.new(1,-20,0,28) btn.Position = UDim2.new(0,10,1,-38)
-btn.BackgroundColor3 = Color3.fromRGB(60,140,80) btn.Text = "Fire startDungeon" btn.TextColor3 = Color3.new(1,1,1)
-btn.Font = Enum.Font.GothamBold btn.Parent = win
-btn.MouseButton1Click:Connect(function() fireStart() st.started = true end)
+status.TextColor3 = Color3.fromRGB(200,200,210) status.Font = Enum.Font.Gotham status.TextSize = 13 status.TextWrapped = true status.Parent = frame
 
 task.spawn(function()
  while gui.Parent do
-  local map, diff = pick()
-  status.Text = string.format("%s\n%s\nNEXT %s %s lv%s\nplace %s",
-   LP.Name, st.name, map, diff, tostring(level()), tostring(game.PlaceId))
+  local map, diff, lv = pick()
+  status.Text = string.format("%s\n%s\nNEXT %s %s\nlv %s  place %s",
+   LP.Name, st.name, map, diff, tostring(lv), tostring(game.PlaceId))
   task.wait(0.4)
  end
 end)
@@ -223,8 +269,8 @@ if isDungeon() then
  end)
  task.spawn(function()
   while gui.Parent and isDungeon() do
-   clickAttack()
-   task.wait(0.15)
+   swing()
+   task.wait(0.08)
   end
  end)
  task.spawn(function()
@@ -237,12 +283,21 @@ if isDungeon() then
 else
  local waitT = 0
  task.spawn(function()
-  task.wait(2)
+  st.name = "WaitLevel"
+  for _ = 1, 15 do
+   if level() > 1 then break end
+   task.wait(0.4)
+  end
+  print("[DQ] level", level(), pick())
+  clickPlay()
   while gui.Parent and isHub() do
+   clickPlay()
    if isHost() then
     if S.AutoCreate and not hostLobby() and not st.created then
-     st.created = createLobby() or st.created
-     st.name = st.created and "Created" or "CreateFail"
+     if level() <= 1 then st.name = "WaitLevel" else
+      st.created = createLobby() or st.created
+      st.name = st.created and "Created" or "CreateFail"
+     end
     elseif hostLobby() then
      st.created = true
      if S.WaitMembers and not partyReady() and not st.started then
