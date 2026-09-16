@@ -1,7 +1,7 @@
--- DQ v18 Q/E free
+-- DQ v19 dungeon auto start
 if getgenv and getgenv().DQRunning then return end
 if getgenv then getgenv().DQRunning = true end
-print("[DQ] v18", game.PlaceId)
+print("[DQ] v19", game.PlaceId)
 repeat task.wait() until game:IsLoaded()
 local Players = game:GetService("Players")
 repeat task.wait() until Players.LocalPlayer
@@ -89,29 +89,63 @@ local function fireNamed(name,invoke,...)
  local r=rem() if not r then return false end
  local ev=r:FindFirstChild(name) if not ev then return false end
  local args={...}
- return pcall(function() if invoke or ev:IsA("RemoteFunction") then ev:InvokeServer(unpack(args)) else ev:FireServer(unpack(args)) end end)
+ local ok=pcall(function() if invoke or ev:IsA("RemoteFunction") then ev:InvokeServer(unpack(args)) else ev:FireServer(unpack(args)) end end)
+ if ok then print("[DQ]", name) end
+ return ok
 end
-local function clickText(words)
+local function fireBtn(o)
+ pcall(function()
+  if typeof(firesignal)=="function" then
+   pcall(function() firesignal(o.MouseButton1Click) end)
+   pcall(function() firesignal(o.Activated) end)
+   pcall(function() firesignal(o.MouseButton1Down) end)
+  end
+  if typeof(getconnections)=="function" then
+   for _,sig in ipairs({o.MouseButton1Click, o.Activated, o.MouseButton1Down}) do
+    for _,c in ipairs(getconnections(sig)) do pcall(function() c:Fire() end) end
+   end
+  end
+ end)
+end
+local function clickLabeled(needles)
  for _,o in ipairs(PlayerGui:GetDescendants()) do
-  if o:IsA("TextButton") and o.Visible~=false then
-   local t=string.lower((o.Text or "").." "..(o.Name or ""))
-   for _,w in ipairs(words) do
-    if string.find(t,w,1,true) then
-     pcall(function()
-      if typeof(firesignal)=="function" then firesignal(o.MouseButton1Click) end
-      if typeof(getconnections)=="function" then for _,c in ipairs(getconnections(o.MouseButton1Click)) do pcall(function() c:Fire() end) end end
-     end)
+  if (o:IsA("TextButton") or o:IsA("ImageButton")) and o.Visible ~= false then
+   local t = string.lower(string.gsub((o.Text or "").." "..(o.Name or ""), "%s+", " "))
+   for _,w in ipairs(needles) do
+    if t == w or string.find(t, w, 1, true) then
+     fireBtn(o)
+     print("[DQ] click", o.Text or o.Name)
      return true
     end
    end
   end
  end
+ return false
 end
 local function clickPlay()
  if not S.ClickPlay or tick()-st.lastPlay<4 then return end
- st.lastPlay=tick() clickText({"play","play game","start","start dungeon"})
+ st.lastPlay=tick()
+ clickLabeled({"play","play game"})
 end
-local function fireStart() fireNamed("startDungeon",false) clickPlay() end
+local function clickDungeonStart()
+ -- exact dungeon START, not replay / return
+ local hit = clickLabeled({"start dungeon", "startdungeon"})
+ if hit then return true end
+ for _,o in ipairs(PlayerGui:GetDescendants()) do
+  if o:IsA("TextButton") and o.Visible ~= false then
+   local t = string.lower((o.Text or ""):gsub("%s+",""))
+   if t == "start" then fireBtn(o) print("[DQ] click START") return true end
+  end
+ end
+ return false
+end
+local function fireStart()
+ fireNamed("startDungeon", false)
+ fireNamed("startDungeon", true)
+ fireNamed("startGame", false)
+ clickDungeonStart()
+ if isHub() then clickPlay() end
+end
 local function createLobby()
  local map,diff,lv=pick() print("[DQ] create",map,diff,lv) saveRun(map,diff,lv)
  return fireNamed("createLobby",true,map,diff,0,S.Hardcore,S.Private,false)
@@ -120,7 +154,7 @@ local function joinHost()
  local lobby=hostLobby() if not lobby then return false end
  return fireNamed("joinDungeon",true,lobby.Name)
 end
-local function replay() return fireNamed("replay",false) or fireNamed("replayDungeon",false) or clickText({"replay","play again"}) end
+local function replay() return fireNamed("replay",false) or fireNamed("replayDungeon",false) or clickLabeled({"replay","play again"}) end
 local function memberHere(name)
  if st.seen[name:lower()] then return true end
  for _,p in ipairs(Players:GetPlayers()) do if p.Name:lower()==name:lower() then return true end end
@@ -150,46 +184,29 @@ local function guiSaysWin()
   end
  end
 end
-
--- pause swing while Q/E/R/F held so skills can fire
 local skillHeld=false
-UIS.InputBegan:Connect(function(i,g)
+UIS.InputBegan:Connect(function(i)
  if i.KeyCode==Enum.KeyCode.Q or i.KeyCode==Enum.KeyCode.E or i.KeyCode==Enum.KeyCode.R or i.KeyCode==Enum.KeyCode.F then skillHeld=true end
 end)
 UIS.InputEnded:Connect(function(i)
  if i.KeyCode==Enum.KeyCode.Q or i.KeyCode==Enum.KeyCode.E or i.KeyCode==Enum.KeyCode.R or i.KeyCode==Enum.KeyCode.F then skillHeld=false end
 end)
-local function isSkillTool(t)
- local n=string.lower(t.Name)
- return n=="q" or n=="e" or n:find("skill") or n:find("ability") or n:find("spell")
-end
 local function swing()
  if not S.AutoClick or not isDungeon() or skillHeld then return end
  local char=LP.Character if not char then return end
  local tool=char:FindFirstChildOfClass("Tool")
- if tool and isSkillTool(tool) then return end -- don't activate a skill tool
  if tool then pcall(function() tool:Activate() end) end
 end
-
 local function applyFPS()
  if not S.FPSBoost then return end
  pcall(function() settings().Rendering.QualityLevel=Enum.QualityLevel.Level01 end)
- Lighting.GlobalShadows=false Lighting.FogEnd=1e6
- for _,v in ipairs(Lighting:GetChildren()) do
-  if v:IsA("BlurEffect") or v:IsA("SunRaysEffect") or v:IsA("BloomEffect") or v:IsA("DepthOfFieldEffect") then v.Enabled=false end
- end
- if S.HideEffects then
-  for _,v in ipairs(workspace:GetDescendants()) do
-   if v:IsA("ParticleEmitter") or v:IsA("Trail") or v:IsA("Beam") or v:IsA("Smoke") or v:IsA("Fire") then v.Enabled=false end
-  end
- end
+ Lighting.GlobalShadows=false
 end
 local function applyPixel()
  if not S.PixelMode then return end
  for _,v in ipairs(workspace:GetDescendants()) do
-  if v:IsA("BasePart") then v.Material=Enum.Material.SmoothPlastic v.Reflectance=0 v.CastShadow=false
-  elseif v:IsA("Decal") or v:IsA("Texture") then v.Transparency=1
-  elseif v:IsA("MeshPart") then pcall(function() v.TextureID="" end) v.Material=Enum.Material.SmoothPlastic end
+  if v:IsA("BasePart") then v.Material=Enum.Material.SmoothPlastic v.Reflectance=0
+  elseif v:IsA("Decal") or v:IsA("Texture") then v.Transparency=1 end
  end
 end
 local function onFinished()
@@ -247,13 +264,24 @@ local setBox=section(setPage,"UI Settings",0,0,560,340) y=34
 toggle(setBox,"Auto Create (host)","AutoCreate") toggle(setBox,"Auto Join (alts)","AutoJoin") toggle(setBox,"Auto Start","AutoStart") toggle(setBox,"Auto Replay","AutoReplay") toggle(setBox,"Auto Swing","AutoClick") toggle(setBox,"Click Play Button","ClickPlay")
 toggle(setBox,"FPS Boost","FPSBoost",function(on) if on then applyFPS() end end)
 toggle(setBox,"Pixel Mode","PixelMode",function(on) if on then applyPixel() end end)
-toggle(setBox,"Hide Effects","HideEffects",function(on) if on then applyFPS() end end)
+toggle(setBox,"Hide Effects","HideEffects")
 local host=Instance.new("TextBox") host.Size=UDim2.new(1,-20,0,24) host.Position=UDim2.new(0,10,0,y) host.BackgroundColor3=Color3.fromRGB(22,22,26) host.Text=S.HostName host.TextColor3=TEXT host.Font=Enum.Font.Gotham host.TextSize=12 host.Parent=setBox
 host.FocusLost:Connect(function() S.HostName=host.Text:gsub("%s+","") save() end)
 task.spawn(function() while gui.Parent do local map,diff,lv=pick() sl.Text=string.format("Account: %s\nState: %s\nBest: %s %s\nLevel: %s\nSwing: %s",LP.Name,st.name,map,diff,tostring(lv),S.AutoClick and "ON" or "OFF") task.wait(0.4) end end)
 if S.FPSBoost then applyFPS() end if S.PixelMode then task.defer(applyPixel) end
+
 if isDungeon() then
- task.spawn(function() st.name="Wait5s" task.wait(5) st.started=true st.name="Swinging" fireStart() end)
+ task.spawn(function()
+  st.name="Wait5s"
+  task.wait(5)
+  if not S.AutoStart then st.name="InDungeon" return end
+  for i=1,6 do
+   st.name="StartRemote "..i
+   fireStart()
+   task.wait(1.5)
+  end
+  st.name="Swinging"
+ end)
  task.spawn(function() while gui.Parent do if isDungeon() and S.AutoClick then swing() end task.wait((S.SwingMs or 80)/1000) end end)
  task.spawn(function() task.wait(25) while gui.Parent and isDungeon() do if guiSaysWin() then onFinished() end task.wait(2) end end)
 else
