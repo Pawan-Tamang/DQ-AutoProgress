@@ -1,7 +1,7 @@
--- DQ v19.1 safe button click
+-- DQ v20 play + start + swing
 if getgenv and getgenv().DQRunning then return end
 if getgenv then getgenv().DQRunning = true end
-print("[DQ] v19.1", game.PlaceId)
+print("[DQ] v20", game.PlaceId)
 repeat task.wait() until game:IsLoaded()
 local Players = game:GetService("Players")
 repeat task.wait() until Players.LocalPlayer
@@ -10,7 +10,8 @@ local PlayerGui = LP:FindFirstChild("PlayerGui") or LP:WaitForChild("PlayerGui",
 local RS = game:GetService("ReplicatedStorage")
 local UIS = game:GetService("UserInputService")
 local HttpService = game:GetService("HttpService")
-local Lighting = game:GetService("Lighting")
+local VIM = game:GetService("VirtualInputManager")
+local Cam = workspace.CurrentCamera
 
 local URL = "https://raw.githubusercontent.com/Pawan-Tamang/DQ-AutoProgress/main/script.lua"
 pcall(function()
@@ -23,8 +24,20 @@ end)
 
 local HUB = { [77649408247578] = true, [115445507767090] = true }
 local DUNGEON = 85776757589518
-local function isHub() return HUB[game.PlaceId] == true end
-local function isDungeon() return game.PlaceId == DUNGEON end
+local function dungeonName()
+ local dn = workspace:FindFirstChild("dungeonName")
+ return dn and tostring(dn.Value or "") or ""
+end
+local function isHub()
+ local v = dungeonName()
+ if v ~= "" and v ~= "Lobby" then return false end
+ return HUB[game.PlaceId] == true or v == "Lobby" or v == ""
+end
+local function isDungeon()
+ if game.PlaceId == DUNGEON then return true end
+ local v = dungeonName()
+ return v ~= "" and v ~= "Lobby"
+end
 
 local S = {
  HostName = "kurokazahood", Members = {"royaldancersss"},
@@ -54,7 +67,7 @@ local PROG = {
  {"The Canals",100,"Insane"},{"The Canals",105,"Nightmare"},
  {"Ghastly Harbor",110,"Insane"},{"Ghastly Harbor",115,"Nightmare"},
  {"Steampunk Sewers",120,"Insane"},{"Steampunk Sewers",125,"Nightmare"},
- {"Orbital Outpost",140,"Insane"},{"Orbital Outpost",145,"Nightmare"},
+ {"Orbital Outpost",135,"Insane"},{"Orbital Outpost",140,"Nightmare"},
  {"Volcanic Chambers",150,"Insane"},{"Volcanic Chambers",155,"Nightmare"},
  {"Aquatic Temple",160,"Insane"},{"Aquatic Temple",165,"Nightmare"},
  {"Enchanted Forest",170,"Insane"},{"Enchanted Forest",175,"Nightmare"},
@@ -67,7 +80,28 @@ local function loadRun()
  return type(out)=="table" and out or nil
 end
 local st = { name = isDungeon() and "InDungeon" or "Hub", created=false, joined=false, started=false, finished=false, seen={}, lastPlay=0 }
-local function rem() return RS:FindFirstChild("remotes") end
+
+local function rem()
+ return RS:FindFirstChild("remotes") or RS:FindFirstChild("Remotes")
+end
+local function findRemote(names)
+ local r = rem() if not r then return nil end
+ if type(names)=="string" then names = {names} end
+ for _,n in ipairs(names) do
+  for _,v in ipairs(r:GetChildren()) do
+   if v.Name:lower()==n:lower() then return v end
+  end
+ end
+end
+local function fireRemote(names, invoke, ...)
+ local ev = findRemote(names) if not ev then return false end
+ local args = {...}
+ local ok = pcall(function()
+  if invoke or ev:IsA("RemoteFunction") then ev:InvokeServer(unpack(args)) else ev:FireServer(unpack(args)) end
+ end)
+ if ok then print("[DQ]", ev.Name) end
+ return ok
+end
 local function level()
  local best=1
  local ls=LP:FindFirstChild("leaderstats")
@@ -85,14 +119,6 @@ local function hostLobby()
  local f=folder() if not f then return end
  for _,l in ipairs(f:GetChildren()) do if l.Name:lower()==S.HostName:lower() then return l end end
 end
-local function fireNamed(name,invoke,...)
- local r=rem() if not r then return false end
- local ev=r:FindFirstChild(name) if not ev then return false end
- local args={...}
- local ok=pcall(function() if invoke or ev:IsA("RemoteFunction") then ev:InvokeServer(unpack(args)) else ev:FireServer(unpack(args)) end end)
- if ok then print("[DQ]", name) end
- return ok
-end
 local function fireBtn(o)
  pcall(function()
   if typeof(firesignal)=="function" then
@@ -103,61 +129,64 @@ local function fireBtn(o)
    pcall(function() for _,c in ipairs(getconnections(o.MouseButton1Click)) do pcall(function() c:Fire() end) end end)
    pcall(function() for _,c in ipairs(getconnections(o.Activated)) do pcall(function() c:Fire() end) end end)
   end
+  -- physical click on the button center (play logo)
+  local p,s = o.AbsolutePosition, o.AbsoluteSize
+  if s.X > 2 and s.Y > 2 then
+   local x,y = p.X + s.X/2, p.Y + s.Y/2 + 36
+   VIM:SendMouseButtonEvent(x, y, 0, true, game, 1)
+   VIM:SendMouseButtonEvent(x, y, 0, false, game, 1)
+  end
  end)
 end
-local function btnText(o)
- if o:IsA("TextButton") or o:IsA("TextLabel") then
-  return string.lower(tostring(o.Text or ""))
- end
- return ""
+local function isPhone(o)
+ local n = o:GetFullName():lower()
+ return n:find("johnpork") or n:find("phone") or n:find("dqmanager")
 end
-local function clickLabeled(needles)
+local function labelOf(o)
+ local bits = { string.lower(o.Name or "") }
+ if o:IsA("TextButton") or o:IsA("TextLabel") then table.insert(bits, string.lower(tostring(o.Text or ""))) end
+ return table.concat(bits, " ")
+end
+local function clickPlayLogo()
+ if not S.ClickPlay then return false end
+ if tick()-st.lastPlay < 2 then return false end
  for _,o in ipairs(PlayerGui:GetDescendants()) do
-  if not o:IsA("TextButton") then continue end
-  if o.Visible == false then continue end
-  local path = o:GetFullName():lower()
-  if path:find("johnpork") or path:find("phone") then continue end
-  local t = btnText(o) .. " " .. string.lower(o.Name or "")
-  for _,w in ipairs(needles) do
-   if string.find(t, w, 1, true) then
+  if (o:IsA("ImageButton") or o:IsA("TextButton")) and o.Visible ~= false and not isPhone(o) then
+   local t = labelOf(o)
+   if t:find("play") or o.Name:lower()=="play" or o.Name:lower():find("playbtn") or o.Name:lower():find("playbutton") then
+    st.lastPlay = tick()
     fireBtn(o)
-    print("[DQ] click", o.Text or o.Name)
+    print("[DQ] play logo", o.Name, o.ClassName)
     return true
    end
   end
  end
  return false
 end
-local function clickPlay()
- if not S.ClickPlay or tick()-st.lastPlay<4 then return end
- st.lastPlay=tick()
- clickLabeled({"play game", "play"})
-end
 local function clickDungeonStart()
- if clickLabeled({"start dungeon"}) then return true end
  for _,o in ipairs(PlayerGui:GetDescendants()) do
-  if o:IsA("TextButton") and o.Visible ~= false then
-   local t = string.gsub(btnText(o), "%s+", "")
-   if t == "start" then fireBtn(o) print("[DQ] click START") return true end
+  if o:IsA("TextButton") and o.Visible ~= false and not isPhone(o) then
+   local t = string.gsub(string.lower(tostring(o.Text or "")), "%s+", "")
+   if t=="start" or t=="startdungeon" then fireBtn(o) print("[DQ] click START") return true end
   end
  end
  return false
 end
 local function fireStart()
- fireNamed("startDungeon", false)
- fireNamed("startDungeon", true)
+ fireRemote({"startDungeon"}, false)
+ task.wait(0.3)
+ fireRemote({"changeStartValue"}, false)
  clickDungeonStart()
- if isHub() then clickPlay() end
 end
 local function createLobby()
  local map,diff,lv=pick() print("[DQ] create",map,diff,lv) saveRun(map,diff,lv)
- return fireNamed("createLobby",true,map,diff,0,S.Hardcore,S.Private,false)
+ return fireRemote({"createLobby","createDungeon"}, true, map, diff, 0, S.Hardcore, S.Private, false)
 end
 local function joinHost()
  local lobby=hostLobby() if not lobby then return false end
- return fireNamed("joinDungeon",true,lobby.Name)
+ return fireRemote({"joinDungeon"}, true, lobby.Name)
 end
-local function replay() return fireNamed("replay",false) or fireNamed("replayDungeon",false) or clickLabeled({"replay","play again"}) end
+local function replay() return fireRemote({"replayDungeon","replay"}, false) end
 local function memberHere(name)
  if st.seen[name:lower()] then return true end
  for _,p in ipairs(Players:GetPlayers()) do if p.Name:lower()==name:lower() then return true end end
@@ -170,22 +199,20 @@ end
 pcall(function()
  PlayerGui.DescendantAdded:Connect(function(o)
   if o:IsA("TextLabel") or o:IsA("TextButton") then
-   local a=string.match(string.lower(o.Text or ""), "player added to lobby:%s*(%S+)")
-   if a then st.seen[a]=true end
+   local ok,txt = pcall(function() return o.Text end)
+   if ok and txt then
+    local a=string.match(string.lower(txt), "player added to lobby:%s*(%S+)")
+    if a then st.seen[a]=true end
+   end
   end
  end)
 end)
 local function isHost() return LP.Name:lower()==S.HostName:lower() end
-local WIN={"victory","dungeon complete","you win","boss defeated","mission complete"}
-local function guiSaysWin()
- for _,o in ipairs(PlayerGui:GetDescendants()) do
-  if o:IsA("TextLabel") or o:IsA("TextButton") then
-   local t=btnText(o)
-   if not string.find(t,"return to lobby",1,true) then
-    for _,w in ipairs(WIN) do if string.find(t,w,1,true) then return true end end
-   end
-  end
- end
+local function dungeonFinished()
+ local d = workspace:FindFirstChild("dungeon")
+ local br = d and d:FindFirstChild("bossRoom")
+ local f = br and br:FindFirstChild("dungeonFinished")
+ return f and f.Value == true
 end
 local skillHeld=false
 UIS.InputBegan:Connect(function(i)
@@ -198,24 +225,20 @@ local function swing()
  if not S.AutoClick or not isDungeon() or skillHeld then return end
  local char=LP.Character if not char then return end
  local tool=char:FindFirstChildOfClass("Tool")
- if tool then pcall(function() tool:Activate() end) end
-end
-local function applyFPS()
- if not S.FPSBoost then return end
- pcall(function() settings().Rendering.QualityLevel=Enum.QualityLevel.Level01 end)
-end
-local function applyPixel()
- if not S.PixelMode then return end
- for _,v in ipairs(workspace:GetDescendants()) do
-  if v:IsA("BasePart") then v.Material=Enum.Material.SmoothPlastic
-  elseif v:IsA("Decal") or v:IsA("Texture") then v.Transparency=1 end
+ if not tool then
+  local hum=char:FindFirstChildOfClass("Humanoid")
+  local t=LP.Backpack:FindFirstChildOfClass("Tool")
+  if t and hum and not string.lower(t.Name):find("skill") then pcall(function() hum:EquipTool(t) end) tool=t end
  end
-end
-local function onFinished()
- if st.finished then return end
- st.finished=true st.name="Replay"
- if isHost() and S.AutoReplay then replay() end
- task.delay(15,function() st.finished=false end)
+ if tool then pcall(function() tool:Activate() end) end
+ -- LMB is the real attack in DQR; click center of world view, not 0,0
+ pcall(function()
+  local vs = Cam and Cam.ViewportSize or Vector2.new(800,450)
+  local x,y = vs.X/2, vs.Y/2 + 40
+  VIM:SendMouseButtonEvent(x, y, 0, true, game, 1)
+  VIM:SendMouseButtonEvent(x, y, 0, false, game, 1)
+ end)
+ pcall(function() if mouse1click then mouse1click() end end)
 end
 
 local old=PlayerGui:FindFirstChild("DQManager") if old then old:Destroy() end
@@ -249,13 +272,13 @@ end
 local mgr=section(mainPage,"Manager",0,0,360,330)
 local stat=section(mainPage,"Status",372,0,188,180)
 local y=34
-local function toggle(parent,label,key,cb)
+local function toggle(parent,label,key)
  local row=Instance.new("Frame") row.Size=UDim2.new(1,-20,0,26) row.Position=UDim2.new(0,10,0,y) row.BackgroundTransparency=1 row.Parent=parent
  local l=Instance.new("TextLabel") l.Size=UDim2.new(1,-54,1,0) l.BackgroundTransparency=1 l.Text=label l.TextXAlignment=Enum.TextXAlignment.Left l.TextColor3=TEXT l.Font=Enum.Font.Gotham l.TextSize=13 l.Parent=row
  local pill=Instance.new("TextButton") pill.Size=UDim2.new(0,40,0,20) pill.Position=UDim2.new(1,-44,0.5,-10) pill.Text="" pill.Parent=row Instance.new("UICorner",pill).CornerRadius=UDim.new(1,0)
  local kn=Instance.new("Frame") kn.Size=UDim2.new(0,16,0,16) kn.BackgroundColor3=Color3.new(1,1,1) kn.Parent=pill Instance.new("UICorner",kn).CornerRadius=UDim.new(1,0)
  local function paint() pill.BackgroundColor3=S[key] and ACC or Color3.fromRGB(70,70,78) kn.Position=UDim2.new(S[key] and 1 or 0,S[key] and -18 or 2,0.5,-8) end
- paint() pill.MouseButton1Click:Connect(function() S[key]=not S[key] paint() save() if cb then cb(S[key]) end end) y+=28
+ paint() pill.MouseButton1Click:Connect(function() S[key]=not S[key] paint() save() end) y+=28
 end
 toggle(mgr,"Auto Best Dungeon","AutoBest") toggle(mgr,"Hardcore Lobby","Hardcore") toggle(mgr,"Private Lobby","Private") toggle(mgr,"Wait For Members After restart","WaitMembers")
 local mem=Instance.new("TextBox") mem.Size=UDim2.new(1,-20,0,24) mem.Position=UDim2.new(0,10,0,y) mem.BackgroundColor3=Color3.fromRGB(22,22,26) mem.Text=table.concat(S.Members,", ") mem.TextColor3=TEXT mem.Font=Enum.Font.Gotham mem.TextSize=12 mem.Parent=mgr
@@ -264,28 +287,46 @@ toggle(mgr,"Auto Accept Join Requests","AutoAccept")
 local sl=Instance.new("TextLabel") sl.Size=UDim2.new(1,-12,1,-30) sl.Position=UDim2.new(0,8,0,28) sl.BackgroundTransparency=1 sl.TextXAlignment=Enum.TextXAlignment.Left sl.TextYAlignment=Enum.TextYAlignment.Top sl.TextColor3=TEXT sl.Font=Enum.Font.Gotham sl.TextSize=12 sl.TextWrapped=true sl.Parent=stat
 local setBox=section(setPage,"UI Settings",0,0,560,340) y=34
 toggle(setBox,"Auto Create (host)","AutoCreate") toggle(setBox,"Auto Join (alts)","AutoJoin") toggle(setBox,"Auto Start","AutoStart") toggle(setBox,"Auto Replay","AutoReplay") toggle(setBox,"Auto Swing","AutoClick") toggle(setBox,"Click Play Button","ClickPlay")
-toggle(setBox,"FPS Boost","FPSBoost",function(on) if on then applyFPS() end end)
-toggle(setBox,"Pixel Mode","PixelMode",function(on) if on then applyPixel() end end)
-toggle(setBox,"Hide Effects","HideEffects")
+toggle(setBox,"FPS Boost","FPSBoost") toggle(setBox,"Pixel Mode","PixelMode") toggle(setBox,"Hide Effects","HideEffects")
 local host=Instance.new("TextBox") host.Size=UDim2.new(1,-20,0,24) host.Position=UDim2.new(0,10,0,y) host.BackgroundColor3=Color3.fromRGB(22,22,26) host.Text=S.HostName host.TextColor3=TEXT host.Font=Enum.Font.Gotham host.TextSize=12 host.Parent=setBox
 host.FocusLost:Connect(function() S.HostName=host.Text:gsub("%s+","") save() end)
-task.spawn(function() while gui.Parent do local map,diff,lv=pick() sl.Text=string.format("Account: %s\nState: %s\nBest: %s %s\nLevel: %s\nSwing: %s",LP.Name,st.name,map,diff,tostring(lv),S.AutoClick and "ON" or "OFF") task.wait(0.4) end end)
+task.spawn(function() while gui.Parent do local map,diff,lv=pick() sl.Text=string.format("Account: %s\nState: %s\nBest: %s %s\nLevel: %s\nMap: %s",LP.Name,st.name,map,diff,tostring(lv),dungeonName()) task.wait(0.4) end end)
+
+-- always hunt the join-game play logo
+task.spawn(function()
+ while gui.Parent do
+  if S.ClickPlay and not isDungeon() then clickPlayLogo() end
+  task.wait(1)
+ end
+end)
 
 if isDungeon() then
  task.spawn(function()
   st.name="Wait5s" task.wait(5)
   if not S.AutoStart then st.name="InDungeon" return end
-  for i=1,6 do st.name="StartRemote "..i fireStart() task.wait(1.5) end
+  for i=1,8 do st.name="StartRemote "..i fireStart() task.wait(1.2) end
   st.name="Swinging"
  end)
  task.spawn(function() while gui.Parent do if isDungeon() and S.AutoClick then swing() end task.wait((S.SwingMs or 80)/1000) end end)
- task.spawn(function() task.wait(25) while gui.Parent and isDungeon() do if guiSaysWin() then onFinished() end task.wait(2) end end)
+ task.spawn(function()
+  task.wait(20)
+  while gui.Parent and isDungeon() do
+   if dungeonFinished() then
+    st.name="Finished"
+    if isHost() and S.AutoReplay then replay() end
+    task.wait(12)
+   end
+   task.wait(2)
+  end
+ end)
 else
  local waitT=0
  task.spawn(function()
-  st.name="WaitLevel" for _=1,15 do if level()>1 then break end task.wait(0.4) end clickPlay()
-  while gui.Parent and isHub() do
-   if S.AutoAccept and isHost() then fireNamed("acceptRequest",false) end clickPlay()
+  clickPlayLogo()
+  st.name="WaitLevel" for _=1,15 do if level()>1 then break end task.wait(0.4) end
+  while gui.Parent and not isDungeon() do
+   clickPlayLogo()
+   if S.AutoAccept and isHost() then fireRemote({"respondJoinRequest","acceptRequest"}, false, true) end
    if isHost() then
     if S.AutoCreate and not hostLobby() and not st.created then
      if level()<=1 then st.name="WaitLevel" else st.created=createLobby() or st.created st.name=st.created and "Created" or "CreateFail" end
