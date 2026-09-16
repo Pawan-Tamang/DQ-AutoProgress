@@ -1,7 +1,7 @@
--- DQ v21.1 real Play click
+-- DQ v22 play skip
 if getgenv and getgenv().DQRunning then return end
 if getgenv then getgenv().DQRunning = true end
-print("[DQ] v21.1", game.PlaceId)
+print("[DQ] v22", game.PlaceId)
 repeat task.wait() until game:IsLoaded()
 local Players = game:GetService("Players")
 repeat task.wait() until Players.LocalPlayer
@@ -14,7 +14,7 @@ local VIM = game:GetService("VirtualInputManager")
 local GuiService = game:GetService("GuiService")
 local Cam = workspace.CurrentCamera
 
-local URL = "https://raw.githubusercontent.com/Pawan-Tamang/DQ-AutoProgress/main/script.lua"
+local URL = "https://raw.githubusercontent.com/Pawan-Tamang/DQ-AutoProgress/main/script.lua?v=22"
 pcall(function()
  if getgenv and getgenv().DQQueued then return end
  if getgenv then getgenv().DQQueued = true end
@@ -23,7 +23,6 @@ pcall(function()
  elseif syn and syn.queue_on_teleport then syn.queue_on_teleport(code) end
 end)
 
-local HUB = { [77649408247578] = true, [115445507767090] = true }
 local DUNGEON = 85776757589518
 local function dungeonName()
  local dn = workspace:FindFirstChild("dungeonName")
@@ -79,7 +78,7 @@ local function loadRun()
  return type(out)=="table" and out or nil
 end
 local st = { name = isDungeon() and "InDungeon" or "Hub", created=false, joined=false, started=false, lastPlay=0, seen={}, lastWL=0 }
-local root -- set after GUI build
+local root
 
 local function rem() return RS:FindFirstChild("remotes") or RS:FindFirstChild("Remotes") end
 local function findRemote(names)
@@ -121,78 +120,75 @@ local function hostLobby()
  for _,l in ipairs(f:GetChildren()) do if l.Name:lower()==S.HostName:lower() then return l end end
 end
 local function inset()
- local ok,i = pcall(function() return GuiService:GetGuiInset() end)
+ local ok,i=pcall(function() return GuiService:GetGuiInset() end)
  return ok and i or Vector2.new(0,36)
 end
 local function clickAt(x,y)
- pcall(function()
-  VIM:SendMouseButtonEvent(x, y, 0, true, game, 1)
-  task.wait(0.05)
-  VIM:SendMouseButtonEvent(x, y, 0, false, game, 1)
- end)
+ VIM:SendMouseButtonEvent(x,y,0,true,game,1)
+ task.wait(0.06)
+ VIM:SendMouseButtonEvent(x,y,0,false,game,1)
 end
 local function fireBtn(o)
  pcall(function()
   if typeof(getconnections)=="function" then
-   for _,sigName in ipairs({"MouseButton1Click","Activated","MouseButton1Down","MouseButton1Up"}) do
-    local ok,sig = pcall(function() return o[sigName] end)
+   for _,n in ipairs({"MouseButton1Click","Activated","MouseButton1Down","MouseButton1Up"}) do
+    local ok,sig=pcall(function() return o[n] end)
     if ok and sig then
      for _,c in ipairs(getconnections(sig)) do
-      pcall(function() if c.Function then c.Function() end end)
+      pcall(function() if c.Function then c:Function() end end)
       pcall(function() c:Fire() end)
      end
     end
    end
   end
-  if typeof(firesignal)=="function" then
-   pcall(function() firesignal(o.MouseButton1Click) end)
-   pcall(function() firesignal(o.Activated) end)
-  end
  end)
- local p,s = o.AbsolutePosition, o.AbsoluteSize
- local ins = inset()
- clickAt(p.X + s.X/2 + ins.X, p.Y + s.Y/2 + ins.Y)
+ local p,s=o.AbsolutePosition,o.AbsoluteSize
+ local ins=inset()
+ clickAt(p.X+s.X/2+ins.X, p.Y+s.Y/2+ins.Y)
 end
-local function isOurs(o)
- return o:IsDescendantOf(PlayerGui:FindFirstChild("DQManager") or o) and o:FindFirstAncestor("DQManager") ~= nil
-end
+local function isOurs(o) return o:FindFirstAncestor("DQManager") ~= nil end
 local function findPlayButton()
- local best, bestArea = nil, 0
+ local best,bestArea=nil,0
  for _,o in ipairs(PlayerGui:GetDescendants()) do
-  if o:IsA("TextButton") and o.Visible ~= false and not isOurs(o) then
-   local txt = ""
-   pcall(function() txt = string.lower((o.Text or ""):gsub("%s+","")) end)
-   if txt == "play" then
-    local area = o.AbsoluteSize.X * o.AbsoluteSize.Y
-    if area > bestArea then best, bestArea = o, area end
+  if o:IsA("TextButton") and o.Visible~=false and not isOurs(o) then
+   local txt="" pcall(function() txt=string.lower((o.Text or ""):gsub("%s+","")) end)
+   if txt=="play" then
+    local area=o.AbsoluteSize.X*o.AbsoluteSize.Y
+    if area>bestArea then best,bestArea=o,area end
    end
   end
  end
  return best
 end
+local function skipPlayScreen()
+ fireRemote({"loadPlayerCharacter"}, false)
+ fireRemote({"playGame"}, false)
+ fireRemote({"closeTitle"}, false)
+end
 local function clickPlayLogo()
- if not S.ClickPlay or tick()-st.lastPlay < 1.5 then return false end
- local btn = findPlayButton()
+ if not S.ClickPlay or tick()-st.lastPlay<1.2 then return false end
+ st.lastPlay=tick()
+ skipPlayScreen()
+ local btn=findPlayButton()
  if not btn then return false end
- st.lastPlay = tick()
- print("[DQ] play", btn.Name, btn.AbsoluteSize)
- local was = root and root.Visible
- if root then root.Visible = false end
+ print("[DQ] PLAY btn", btn:GetFullName(), btn.AbsoluteSize)
+ local was=root and root.Visible
+ if root then root.Visible=false end
+ task.wait(0.2)
+ fireBtn(btn)
  task.wait(0.15)
  fireBtn(btn)
- task.wait(0.2)
- if root and was then root.Visible = true end
+ if root and was then root.Visible=true end
  return true
 end
 local function clickDungeonStart()
  for _,o in ipairs(PlayerGui:GetDescendants()) do
-  if o:IsA("TextButton") and o.Visible ~= false and not isOurs(o) then
+  if o:IsA("TextButton") and o.Visible~=false and not isOurs(o) then
    local t="" pcall(function() t=string.gsub(string.lower(o.Text or ""),"%s+","") end)
    if t=="start" or t=="startdungeon" then
-    if root then root.Visible=false end
-    task.wait(0.1) fireBtn(o) print("[DQ] click START")
+    if root then root.Visible=false end task.wait(0.1) fireBtn(o)
     if root then root.Visible=true end
-    return true
+    print("[DQ] click START") return true
    end
   end
  end
@@ -207,7 +203,7 @@ local function createLobby()
  local map,diff,lv=pick()
  print("[DQ] create PRIVATE", map, diff, lv)
  saveRun(map,diff,lv)
- local ok = fireRemote({"createLobby","createDungeon"}, true, map, diff, 0, S.Hardcore, true, false)
+ local ok=fireRemote({"createLobby","createDungeon"}, true, map, diff, 0, S.Hardcore, true, false)
  if ok then task.wait(0.4) whitelistAll() end
  return ok
 end
@@ -271,7 +267,7 @@ root=Instance.new("Frame") root.Size=UDim2.new(0,720,0,430) root.Position=UDim2.
 root.BackgroundColor3=BG root.BorderSizePixel=0 root.Active=true root.Draggable=true root.Parent=gui
 Instance.new("UICorner",root).CornerRadius=UDim.new(0,8)
 local top=Instance.new("Frame") top.Size=UDim2.new(1,0,0,36) top.BackgroundColor3=Color3.fromRGB(16,16,18) top.BorderSizePixel=0 top.Parent=root
-local brand=Instance.new("TextLabel") brand.Size=UDim2.new(0,160,1,0) brand.BackgroundTransparency=1 brand.Text="  Manager" brand.TextXAlignment=Enum.TextXAlignment.Left brand.TextColor3=TEXT brand.Font=Enum.Font.Gotham brand.TextSize=16 brand.Parent=top
+local brand=Instance.new("TextLabel") brand.Size=UDim2.new(0,160,1,0) brand.BackgroundTransparency=1 brand.Text="  Manager v22" brand.TextXAlignment=Enum.TextXAlignment.Left brand.TextColor3=TEXT brand.Font=Enum.Font.Gotham brand.TextSize=16 brand.Parent=top
 local closeB=Instance.new("TextButton") closeB.Size=UDim2.new(0,28,0,24) closeB.Position=UDim2.new(1,-34,0,6) closeB.BackgroundColor3=Color3.fromRGB(40,40,46) closeB.Text="_" closeB.TextColor3=TEXT closeB.Parent=top
 local reopen=Instance.new("TextButton") reopen.Size=UDim2.new(0,90,0,28) reopen.Position=UDim2.new(0,16,0,16) reopen.BackgroundColor3=ACC reopen.Text="Manager" reopen.TextColor3=Color3.new(1,1,1) reopen.Visible=false reopen.Parent=gui
 closeB.MouseButton1Click:Connect(function() root.Visible=false reopen.Visible=true end)
@@ -310,7 +306,7 @@ local setBox=section(setPage,"UI Settings",0,0,560,340) y=34
 toggle(setBox,"Auto Create (host)","AutoCreate") toggle(setBox,"Auto Join (alts)","AutoJoin") toggle(setBox,"Auto Start","AutoStart") toggle(setBox,"Auto Replay","AutoReplay") toggle(setBox,"Auto Swing","AutoClick") toggle(setBox,"Click Play Button","ClickPlay")
 local host=Instance.new("TextBox") host.Size=UDim2.new(1,-20,0,24) host.Position=UDim2.new(0,10,0,y) host.BackgroundColor3=Color3.fromRGB(22,22,26) host.Text=S.HostName host.TextColor3=TEXT host.Font=Enum.Font.Gotham host.TextSize=12 host.Parent=setBox
 host.FocusLost:Connect(function() S.HostName=host.Text:gsub("%s+","") save() end)
-task.spawn(function() while gui.Parent do local map,diff,lv=pick() sl.Text=string.format("Account: %s\nState: %s\nBest: %s %s\nLevel: %s\nPrivate: %s\nWL: %s",LP.Name,st.name,map,diff,tostring(lv),tostring(S.Private),table.concat(S.Members,", ")) task.wait(0.4) end end)
+task.spawn(function() while gui.Parent do local map,diff,lv=pick() sl.Text=string.format("v22 %s\nState: %s\nBest: %s %s\nLevel: %s\nPrivate: %s\nWL: %s",LP.Name,st.name,map,diff,tostring(lv),tostring(S.Private),table.concat(S.Members,", ")) task.wait(0.4) end end)
 
 task.spawn(function() while gui.Parent do if S.ClickPlay and not isDungeon() then clickPlayLogo() end task.wait(1.2) end end)
 
