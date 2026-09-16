@@ -1,7 +1,7 @@
--- DQ v25 wait real lobby members
+-- DQ v26 strict party wait
 if getgenv and getgenv().DQRunning then return end
 if getgenv then getgenv().DQRunning = true end
-print("[DQ] v25", game.PlaceId)
+print("[DQ] v26", game.PlaceId)
 repeat task.wait() until game:IsLoaded()
 local Players = game:GetService("Players")
 repeat task.wait() until Players.LocalPlayer
@@ -11,7 +11,7 @@ local RS = game:GetService("ReplicatedStorage")
 local UIS = game:GetService("UserInputService")
 local HttpService = game:GetService("HttpService")
 
-local URL = "https://raw.githubusercontent.com/Pawan-Tamang/DQ-AutoProgress/main/script.lua?v=25"
+local URL = "https://raw.githubusercontent.com/Pawan-Tamang/DQ-AutoProgress/main/script.lua?v=26"
 pcall(function()
  if getgenv and getgenv().DQQueued then return end
  if getgenv then getgenv().DQQueued = true end
@@ -33,11 +33,11 @@ end
 
 local S = {
  HostName = "kurokazahood",
- Members = {"royaldancerss", "splash_kyrie"},
+ Members = {"royaldancersss", "splash_kyrie"},
  AutoBest = true, Hardcore = true, Private = true,
  WaitMembers = true, AutoAccept = true, AutoCreate = true, AutoJoin = true,
  AutoStart = true, AutoClick = true, AutoReplay = true,
- Timeout = 120, SwingMs = 80,
+ Timeout = 9999, SwingMs = 80,
 }
 pcall(function()
  if readfile and isfile and isfile("DQAutoProgress.json") then
@@ -47,7 +47,7 @@ pcall(function()
 end)
 S.Private = true
 S.WaitMembers = true
-S.Members = {"royaldancerss", "splash_kyrie"}
+S.Members = {"royaldancersss", "splash_kyrie"}
 local function save() pcall(function() if writefile then writefile("DQAutoProgress.json", HttpService:JSONEncode(S)) end end) end
 save()
 
@@ -111,62 +111,57 @@ local function pick()
  if S.AutoBest then for _,d in ipairs(PROG) do if lv>=d[2] then cur=d else break end end end
  return cur[1],cur[3],lv
 end
-local function gamesFolder() return workspace:FindFirstChild("games") end
 local function lobbyFolder()
- local g = gamesFolder()
- return g and (g:FindFirstChild("inLobby") or g:FindFirstChild("inGame"))
+ local g = workspace:FindFirstChild("games")
+ return g and g:FindFirstChild("inLobby")
 end
 local function hostLobby()
  local f = lobbyFolder() if not f then return end
  for _,l in ipairs(f:GetChildren()) do if l.Name:lower()==S.HostName:lower() then return l end end
 end
-local function nameMatch(obj, name)
- if not obj or not name then return false end
- if obj.Name:lower()==name:lower() then return true end
- local ok,val=pcall(function() return obj.Value end)
- if ok and val ~= nil and tostring(val):lower()==name:lower() then return true end
- return false
-end
--- true only if that username is inside the host lobby / inLobby party, NOT just in the server
-local function inHostLobby(name)
- if st.seen[name:lower()] then return true end
- local lobby = hostLobby()
- if lobby then
-  if nameMatch(lobby, name) then return true end
-  for _,c in ipairs(lobby:GetDescendants()) do
-   if nameMatch(c, name) then return true end
-  end
- end
- local f = lobbyFolder()
- if f then
-  for _,entry in ipairs(f:GetChildren()) do
-   if nameMatch(entry, name) then return true end
-  end
- end
- return false
-end
-local function missingMembers()
- local miss = {}
- for _,n in ipairs(S.Members) do
-  if not inHostLobby(n) then table.insert(miss, n) end
- end
- return miss
-end
-local function partyReady()
- if not S.WaitMembers or #S.Members==0 then return true end
- return #missingMembers()==0
-end
-pcall(function()
- PlayerGui.DescendantAdded:Connect(function(o)
+local function scanAddedGui()
+ for _,o in ipairs(PlayerGui:GetDescendants()) do
   if o:IsA("TextLabel") or o:IsA("TextButton") then
    local ok,txt=pcall(function() return o.Text end)
    if ok and txt then
     local a=string.match(string.lower(txt), "player added to lobby:%s*(%S+)")
-    if a then st.seen[a]=true print("[DQ] lobby add", a) end
+    if a then st.seen[a]=true end
    end
   end
+ end
+end
+pcall(function()
+ PlayerGui.DescendantAdded:Connect(function(o)
+  task.defer(function()
+   if o:IsA("TextLabel") or o:IsA("TextButton") then
+    local ok,txt=pcall(function() return o.Text end)
+    if ok and txt then
+     local a=string.match(string.lower(txt), "player added to lobby:%s*(%S+)")
+     if a then st.seen[a]=true print("[DQ] added", a) end
+    end
+   end
+  end)
  end)
 end)
+local function inParty(name)
+ local want = name:lower()
+ if st.seen[want] then return true end
+ scanAddedGui()
+ if st.seen[want] then return true end
+ local lobby = hostLobby()
+ if not lobby then return false end
+ for _,c in ipairs(lobby:GetDescendants()) do
+  if c.Name:lower()==want then return true end
+  local ok,val=pcall(function() return c.Value end)
+  if ok and val ~= nil and tostring(val):lower()==want then return true end
+ end
+ return false
+end
+local function missingMembers()
+ local miss={}
+ for _,n in ipairs(S.Members) do if not inParty(n) then table.insert(miss,n) end end
+ return miss
+end
 local function fireBtn(o)
  pcall(function()
   if typeof(getconnections)=="function" then
@@ -188,6 +183,7 @@ local function clickDungeonStart()
  end
 end
 local function fireStart()
+ print("[DQ] START now")
  fireRemote({"startDungeon"}, false)
  task.wait(0.3)
  fireRemote({"changeStartValue"}, false)
@@ -236,7 +232,7 @@ local root=Instance.new("Frame") root.Size=UDim2.new(0,720,0,430) root.Position=
 root.BackgroundColor3=BG root.BorderSizePixel=0 root.Active=true root.Draggable=true root.Parent=gui
 Instance.new("UICorner",root).CornerRadius=UDim.new(0,8)
 local top=Instance.new("Frame") top.Size=UDim2.new(1,0,0,36) top.BackgroundColor3=Color3.fromRGB(16,16,18) top.BorderSizePixel=0 top.Parent=root
-local brand=Instance.new("TextLabel") brand.Size=UDim2.new(0,180,1,0) brand.BackgroundTransparency=1 brand.Text="  Manager v25" brand.TextXAlignment=Enum.TextXAlignment.Left brand.TextColor3=TEXT brand.Font=Enum.Font.Gotham brand.TextSize=16 brand.Parent=top
+local brand=Instance.new("TextLabel") brand.Size=UDim2.new(0,180,1,0) brand.BackgroundTransparency=1 brand.Text="  Manager v26" brand.TextXAlignment=Enum.TextXAlignment.Left brand.TextColor3=TEXT brand.Font=Enum.Font.Gotham brand.TextSize=16 brand.Parent=top
 local closeB=Instance.new("TextButton") closeB.Size=UDim2.new(0,28,0,24) closeB.Position=UDim2.new(1,-34,0,6) closeB.BackgroundColor3=Color3.fromRGB(40,40,46) closeB.Text="_" closeB.TextColor3=TEXT closeB.Parent=top
 local reopen=Instance.new("TextButton") reopen.Size=UDim2.new(0,90,0,28) reopen.Position=UDim2.new(0,16,0,16) reopen.BackgroundColor3=ACC reopen.Text="Manager" reopen.TextColor3=Color3.new(1,1,1) reopen.Visible=false reopen.Parent=gui
 closeB.MouseButton1Click:Connect(function() root.Visible=false reopen.Visible=true end)
@@ -278,7 +274,7 @@ host.FocusLost:Connect(function() S.HostName=host.Text:gsub("%s+","") save() end
 task.spawn(function()
  while gui.Parent do
   local map,diff,lv=pick()
-  sl.Text=string.format("v25 %s\nState: %s\nBest: %s %s\nLevel: %s\nMissing: %s",LP.Name,st.name,map,diff,tostring(lv),st.missing~="" and st.missing or "none")
+  sl.Text=string.format("v26 %s\nState: %s\nBest: %s %s\nMissing: %s",LP.Name,st.name,map,diff,st.missing~="" and st.missing or "none")
   task.wait(0.4)
  end
 end)
@@ -308,13 +304,13 @@ else
      if level()<=1 then st.name="WaitLevel" else st.created=createLobby() or st.created st.name=st.created and "CreatedPrivate" or "CreateFail" end
     elseif hostLobby() then
      st.created=true whitelistAll()
-     local miss = missingMembers()
-     st.missing = table.concat(miss, ", ")
-     if S.WaitMembers and #miss>0 and not st.started then
-      st.name="Waiting "..st.missing
-      -- do NOT start until both alts are in the lobby
+     local miss=missingMembers()
+     st.missing=table.concat(miss, ", ")
+     if #miss>0 then
+      st.started=false
+      st.name="WAIT "..st.missing
      elseif S.AutoStart and not st.started then
-      print("[DQ] party ready, starting")
+      print("[DQ] both alts in lobby")
       st.started=true fireStart() st.name="Started"
      end
     end
@@ -322,7 +318,7 @@ else
     if S.AutoJoin and hostLobby() and not st.joined then st.joined=joinHost() or st.joined st.name=st.joined and "Joined" or "JoinFail"
     elseif st.joined then st.name="WaitingStart" else st.name="Looking" end
    end
-   task.wait(1.2)
+   task.wait(1)
   end
  end)
 end
