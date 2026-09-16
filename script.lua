@@ -1,7 +1,7 @@
--- DQ v26 strict party wait
+-- DQ v27 public lobby
 if getgenv and getgenv().DQRunning then return end
 if getgenv then getgenv().DQRunning = true end
-print("[DQ] v26", game.PlaceId)
+print("[DQ] v27", game.PlaceId)
 repeat task.wait() until game:IsLoaded()
 local Players = game:GetService("Players")
 repeat task.wait() until Players.LocalPlayer
@@ -11,7 +11,7 @@ local RS = game:GetService("ReplicatedStorage")
 local UIS = game:GetService("UserInputService")
 local HttpService = game:GetService("HttpService")
 
-local URL = "https://raw.githubusercontent.com/Pawan-Tamang/DQ-AutoProgress/main/script.lua?v=26"
+local URL = "https://raw.githubusercontent.com/Pawan-Tamang/DQ-AutoProgress/main/script.lua?v=27"
 pcall(function()
  if getgenv and getgenv().DQQueued then return end
  if getgenv then getgenv().DQQueued = true end
@@ -34,7 +34,7 @@ end
 local S = {
  HostName = "kurokazahood",
  Members = {"royaldancersss", "splash_kyrie"},
- AutoBest = true, Hardcore = true, Private = true,
+ AutoBest = true, Hardcore = true, Private = false,
  WaitMembers = true, AutoAccept = true, AutoCreate = true, AutoJoin = true,
  AutoStart = true, AutoClick = true, AutoReplay = true,
  Timeout = 9999, SwingMs = 80,
@@ -45,7 +45,7 @@ pcall(function()
   if type(d) == "table" then for k,v in pairs(d) do S[k] = v end end
  end
 end)
-S.Private = true
+S.Private = false
 S.WaitMembers = true
 S.Members = {"royaldancersss", "splash_kyrie"}
 local function save() pcall(function() if writefile then writefile("DQAutoProgress.json", HttpService:JSONEncode(S)) end end) end
@@ -75,7 +75,7 @@ local function loadRun()
  local out pcall(function() if readfile and isfile and isfile(RUN) then out = HttpService:JSONDecode(readfile(RUN)) end end)
  return type(out)=="table" and out or nil
 end
-local st = { name = isDungeon() and "InDungeon" or "Hub", created=false, joined=false, started=false, seen={}, lastWL=0, missing="" }
+local st = { name = isDungeon() and "InDungeon" or "Hub", created=false, joined=false, started=false, seen={}, missing="" }
 
 local function rem() return RS:FindFirstChild("remotes") or RS:FindFirstChild("Remotes") end
 local function findRemote(names)
@@ -93,11 +93,6 @@ local function fireRemote(names, invoke, ...)
  end)
  if ok then print("[DQ]", ev.Name) end
  return ok
-end
-local function whitelistAll()
- if tick()-st.lastWL < 3 then return end
- st.lastWL = tick()
- for _,n in ipairs(S.Members) do fireRemote({"addPlayerToWhitelist"}, false, n) end
 end
 local function level()
  local best=1
@@ -191,11 +186,9 @@ local function fireStart()
 end
 local function createLobby()
  local map,diff,lv=pick()
- print("[DQ] create PRIVATE", map, diff, lv)
+ print("[DQ] create PUBLIC", map, diff, lv)
  saveRun(map,diff,lv)
- local ok=fireRemote({"createLobby","createDungeon"}, true, map, diff, 0, S.Hardcore, true, false)
- if ok then task.wait(0.4) whitelistAll() end
- return ok
+ return fireRemote({"createLobby","createDungeon"}, true, map, diff, 0, S.Hardcore, false, false)
 end
 local function joinHost()
  local lobby=hostLobby() if not lobby then return false end
@@ -232,7 +225,7 @@ local root=Instance.new("Frame") root.Size=UDim2.new(0,720,0,430) root.Position=
 root.BackgroundColor3=BG root.BorderSizePixel=0 root.Active=true root.Draggable=true root.Parent=gui
 Instance.new("UICorner",root).CornerRadius=UDim.new(0,8)
 local top=Instance.new("Frame") top.Size=UDim2.new(1,0,0,36) top.BackgroundColor3=Color3.fromRGB(16,16,18) top.BorderSizePixel=0 top.Parent=root
-local brand=Instance.new("TextLabel") brand.Size=UDim2.new(0,180,1,0) brand.BackgroundTransparency=1 brand.Text="  Manager v26" brand.TextXAlignment=Enum.TextXAlignment.Left brand.TextColor3=TEXT brand.Font=Enum.Font.Gotham brand.TextSize=16 brand.Parent=top
+local brand=Instance.new("TextLabel") brand.Size=UDim2.new(0,180,1,0) brand.BackgroundTransparency=1 brand.Text="  Manager v27" brand.TextXAlignment=Enum.TextXAlignment.Left brand.TextColor3=TEXT brand.Font=Enum.Font.Gotham brand.TextSize=16 brand.Parent=top
 local closeB=Instance.new("TextButton") closeB.Size=UDim2.new(0,28,0,24) closeB.Position=UDim2.new(1,-34,0,6) closeB.BackgroundColor3=Color3.fromRGB(40,40,46) closeB.Text="_" closeB.TextColor3=TEXT closeB.Parent=top
 local reopen=Instance.new("TextButton") reopen.Size=UDim2.new(0,90,0,28) reopen.Position=UDim2.new(0,16,0,16) reopen.BackgroundColor3=ACC reopen.Text="Manager" reopen.TextColor3=Color3.new(1,1,1) reopen.Visible=false reopen.Parent=gui
 closeB.MouseButton1Click:Connect(function() root.Visible=false reopen.Visible=true end)
@@ -274,7 +267,7 @@ host.FocusLost:Connect(function() S.HostName=host.Text:gsub("%s+","") save() end
 task.spawn(function()
  while gui.Parent do
   local map,diff,lv=pick()
-  sl.Text=string.format("v26 %s\nState: %s\nBest: %s %s\nMissing: %s",LP.Name,st.name,map,diff,st.missing~="" and st.missing or "none")
+  sl.Text=string.format("v27 PUBLIC\n%s\nState: %s\nBest: %s %s\nMissing: %s",LP.Name,st.name,map,diff,st.missing~="" and st.missing or "none")
   task.wait(0.4)
  end
 end)
@@ -298,12 +291,11 @@ else
  task.spawn(function()
   st.name="WaitLevel" for _=1,15 do if level()>1 then break end task.wait(0.4) end
   while gui.Parent and not isDungeon() do
-   if isHost() then whitelistAll() end
    if isHost() then
     if S.AutoCreate and not hostLobby() and not st.created then
-     if level()<=1 then st.name="WaitLevel" else st.created=createLobby() or st.created st.name=st.created and "CreatedPrivate" or "CreateFail" end
+     if level()<=1 then st.name="WaitLevel" else st.created=createLobby() or st.created st.name=st.created and "CreatedPublic" or "CreateFail" end
     elseif hostLobby() then
-     st.created=true whitelistAll()
+     st.created=true
      local miss=missingMembers()
      st.missing=table.concat(miss, ", ")
      if #miss>0 then
