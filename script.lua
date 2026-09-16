@@ -1,7 +1,7 @@
--- DQ v21 private + whitelist
+-- DQ v21.1 real Play click
 if getgenv and getgenv().DQRunning then return end
 if getgenv then getgenv().DQRunning = true end
-print("[DQ] v21", game.PlaceId)
+print("[DQ] v21.1", game.PlaceId)
 repeat task.wait() until game:IsLoaded()
 local Players = game:GetService("Players")
 repeat task.wait() until Players.LocalPlayer
@@ -11,6 +11,7 @@ local RS = game:GetService("ReplicatedStorage")
 local UIS = game:GetService("UserInputService")
 local HttpService = game:GetService("HttpService")
 local VIM = game:GetService("VirtualInputManager")
+local GuiService = game:GetService("GuiService")
 local Cam = workspace.CurrentCamera
 
 local URL = "https://raw.githubusercontent.com/Pawan-Tamang/DQ-AutoProgress/main/script.lua"
@@ -40,7 +41,6 @@ local S = {
  AutoBest = true, Hardcore = true, Private = true,
  WaitMembers = true, AutoAccept = true, AutoCreate = true, AutoJoin = true,
  AutoStart = true, AutoClick = true, AutoReplay = true, ClickPlay = true,
- FPSBoost = false, PixelMode = false, HideEffects = false,
  Timeout = 45, SwingMs = 80,
 }
 pcall(function()
@@ -49,7 +49,6 @@ pcall(function()
   if type(d) == "table" then for k,v in pairs(d) do S[k] = v end end
  end
 end)
--- this update always private + these two alts
 S.Private = true
 S.Members = {"royaldancerss", "splash_kyrie"}
 local function save() pcall(function() if writefile then writefile("DQAutoProgress.json", HttpService:JSONEncode(S)) end end) end
@@ -80,6 +79,8 @@ local function loadRun()
  return type(out)=="table" and out or nil
 end
 local st = { name = isDungeon() and "InDungeon" or "Hub", created=false, joined=false, started=false, lastPlay=0, seen={}, lastWL=0 }
+local root -- set after GUI build
+
 local function rem() return RS:FindFirstChild("remotes") or RS:FindFirstChild("Remotes") end
 local function findRemote(names)
  local r = rem() if not r then return nil end
@@ -94,15 +95,13 @@ local function fireRemote(names, invoke, ...)
  local ok = pcall(function()
   if invoke or ev:IsA("RemoteFunction") then ev:InvokeServer(unpack(args)) else ev:FireServer(unpack(args)) end
  end)
- if ok then print("[DQ]", ev.Name, table.concat({...}," ")) end
+ if ok then print("[DQ]", ev.Name) end
  return ok
 end
 local function whitelistAll()
  if tick()-st.lastWL < 3 then return end
  st.lastWL = tick()
- for _,n in ipairs(S.Members) do
-  fireRemote({"addPlayerToWhitelist"}, false, n)
- end
+ for _,n in ipairs(S.Members) do fireRemote({"addPlayerToWhitelist"}, false, n) end
 end
 local function level()
  local best=1
@@ -121,40 +120,80 @@ local function hostLobby()
  local f=folder() if not f then return end
  for _,l in ipairs(f:GetChildren()) do if l.Name:lower()==S.HostName:lower() then return l end end
 end
-local function fireBtn(o)
+local function inset()
+ local ok,i = pcall(function() return GuiService:GetGuiInset() end)
+ return ok and i or Vector2.new(0,36)
+end
+local function clickAt(x,y)
  pcall(function()
-  if typeof(firesignal)=="function" then pcall(function() firesignal(o.MouseButton1Click) end) pcall(function() firesignal(o.Activated) end) end
-  if typeof(getconnections)=="function" then
-   pcall(function() for _,c in ipairs(getconnections(o.MouseButton1Click)) do pcall(function() c:Fire() end) end end)
-  end
-  local p,s=o.AbsolutePosition,o.AbsoluteSize
-  if s.X>2 and s.Y>2 then
-   local x,y=p.X+s.X/2,p.Y+s.Y/2+36
-   VIM:SendMouseButtonEvent(x,y,0,true,game,1) VIM:SendMouseButtonEvent(x,y,0,false,game,1)
-  end
+  VIM:SendMouseButtonEvent(x, y, 0, true, game, 1)
+  task.wait(0.05)
+  VIM:SendMouseButtonEvent(x, y, 0, false, game, 1)
  end)
 end
-local function isPhone(o)
- local n=o:GetFullName():lower()
- return n:find("johnpork") or n:find("phone") or n:find("dqmanager")
+local function fireBtn(o)
+ pcall(function()
+  if typeof(getconnections)=="function" then
+   for _,sigName in ipairs({"MouseButton1Click","Activated","MouseButton1Down","MouseButton1Up"}) do
+    local ok,sig = pcall(function() return o[sigName] end)
+    if ok and sig then
+     for _,c in ipairs(getconnections(sig)) do
+      pcall(function() if c.Function then c.Function() end end)
+      pcall(function() c:Fire() end)
+     end
+    end
+   end
+  end
+  if typeof(firesignal)=="function" then
+   pcall(function() firesignal(o.MouseButton1Click) end)
+   pcall(function() firesignal(o.Activated) end)
+  end
+ end)
+ local p,s = o.AbsolutePosition, o.AbsoluteSize
+ local ins = inset()
+ clickAt(p.X + s.X/2 + ins.X, p.Y + s.Y/2 + ins.Y)
 end
-local function clickPlayLogo()
- if not S.ClickPlay or tick()-st.lastPlay<2 then return false end
+local function isOurs(o)
+ return o:IsDescendantOf(PlayerGui:FindFirstChild("DQManager") or o) and o:FindFirstAncestor("DQManager") ~= nil
+end
+local function findPlayButton()
+ local best, bestArea = nil, 0
  for _,o in ipairs(PlayerGui:GetDescendants()) do
-  if (o:IsA("ImageButton") or o:IsA("TextButton")) and o.Visible~=false and not isPhone(o) then
-   local t=string.lower(o.Name or "")
-   local txt="" pcall(function() if o:IsA("TextButton") then txt=string.lower(o.Text or "") end end)
-   if t:find("play") or txt:find("play") then
-    st.lastPlay=tick() fireBtn(o) print("[DQ] play logo", o.Name) return true
+  if o:IsA("TextButton") and o.Visible ~= false and not isOurs(o) then
+   local txt = ""
+   pcall(function() txt = string.lower((o.Text or ""):gsub("%s+","")) end)
+   if txt == "play" then
+    local area = o.AbsoluteSize.X * o.AbsoluteSize.Y
+    if area > bestArea then best, bestArea = o, area end
    end
   end
  end
+ return best
+end
+local function clickPlayLogo()
+ if not S.ClickPlay or tick()-st.lastPlay < 1.5 then return false end
+ local btn = findPlayButton()
+ if not btn then return false end
+ st.lastPlay = tick()
+ print("[DQ] play", btn.Name, btn.AbsoluteSize)
+ local was = root and root.Visible
+ if root then root.Visible = false end
+ task.wait(0.15)
+ fireBtn(btn)
+ task.wait(0.2)
+ if root and was then root.Visible = true end
+ return true
 end
 local function clickDungeonStart()
  for _,o in ipairs(PlayerGui:GetDescendants()) do
-  if o:IsA("TextButton") and o.Visible~=false and not isPhone(o) then
+  if o:IsA("TextButton") and o.Visible ~= false and not isOurs(o) then
    local t="" pcall(function() t=string.gsub(string.lower(o.Text or ""),"%s+","") end)
-   if t=="start" or t=="startdungeon" then fireBtn(o) print("[DQ] click START") return true end
+   if t=="start" or t=="startdungeon" then
+    if root then root.Visible=false end
+    task.wait(0.1) fireBtn(o) print("[DQ] click START")
+    if root then root.Visible=true end
+    return true
+   end
   end
  end
 end
@@ -215,26 +254,20 @@ local function swing()
  if not S.AutoClick or not isDungeon() or skillHeld then return end
  local char=LP.Character if not char then return end
  local tool=char:FindFirstChildOfClass("Tool")
- if not tool then
-  local hum=char:FindFirstChildOfClass("Humanoid")
-  local t=LP.Backpack:FindFirstChildOfClass("Tool")
-  if t and hum then pcall(function() hum:EquipTool(t) end) tool=t end
- end
  if tool then pcall(function() tool:Activate() end) end
  pcall(function()
   local vs=Cam and Cam.ViewportSize or Vector2.new(800,450)
   VIM:SendMouseButtonEvent(vs.X/2, vs.Y/2+40, 0, true, game, 1)
   VIM:SendMouseButtonEvent(vs.X/2, vs.Y/2+40, 0, false, game, 1)
  end)
- pcall(function() if mouse1click then mouse1click() end end)
 end
 
 local old=PlayerGui:FindFirstChild("DQManager") if old then old:Destroy() end
-local gui=Instance.new("ScreenGui") gui.Name="DQManager" gui.ResetOnSpawn=false
+local gui=Instance.new("ScreenGui") gui.Name="DQManager" gui.ResetOnSpawn=false gui.DisplayOrder=100
 pcall(function() gui.Parent=PlayerGui end)
 if not gui.Parent then pcall(function() gui.Parent=game:GetService("CoreGui") end) end
 local BG,PANEL,SIDE,TEXT,MUTED,ACC=Color3.fromRGB(18,18,20),Color3.fromRGB(28,28,32),Color3.fromRGB(22,22,24),Color3.fromRGB(230,230,235),Color3.fromRGB(150,150,160),Color3.fromRGB(140,90,255)
-local root=Instance.new("Frame") root.Size=UDim2.new(0,720,0,430) root.Position=UDim2.new(0.5,-360,0.5,-215)
+root=Instance.new("Frame") root.Size=UDim2.new(0,720,0,430) root.Position=UDim2.new(0,16,0,80)
 root.BackgroundColor3=BG root.BorderSizePixel=0 root.Active=true root.Draggable=true root.Parent=gui
 Instance.new("UICorner",root).CornerRadius=UDim.new(0,8)
 local top=Instance.new("Frame") top.Size=UDim2.new(1,0,0,36) top.BackgroundColor3=Color3.fromRGB(16,16,18) top.BorderSizePixel=0 top.Parent=root
@@ -279,7 +312,7 @@ local host=Instance.new("TextBox") host.Size=UDim2.new(1,-20,0,24) host.Position
 host.FocusLost:Connect(function() S.HostName=host.Text:gsub("%s+","") save() end)
 task.spawn(function() while gui.Parent do local map,diff,lv=pick() sl.Text=string.format("Account: %s\nState: %s\nBest: %s %s\nLevel: %s\nPrivate: %s\nWL: %s",LP.Name,st.name,map,diff,tostring(lv),tostring(S.Private),table.concat(S.Members,", ")) task.wait(0.4) end end)
 
-task.spawn(function() while gui.Parent do if S.ClickPlay and not isDungeon() then clickPlayLogo() end task.wait(1) end end)
+task.spawn(function() while gui.Parent do if S.ClickPlay and not isDungeon() then clickPlayLogo() end task.wait(1.2) end end)
 
 if isDungeon() then
  task.spawn(function()
