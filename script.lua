@@ -1,20 +1,20 @@
--- DQ v13 false-finish fix
-if getgenv and getgenv().DQV13 then return end
-if getgenv then getgenv().DQV13 = true end
-print("[DQ] v13", game.PlaceId)
+-- DQ v14 safe cycle
+if getgenv and getgenv().DQRunning then return end
+if getgenv then getgenv().DQRunning = true end
+print("[DQ] v14", game.PlaceId)
 repeat task.wait() until game:IsLoaded()
 local Players = game:GetService("Players")
 repeat task.wait() until Players.LocalPlayer
 local LP = Players.LocalPlayer
 local PlayerGui = LP:FindFirstChild("PlayerGui") or LP:WaitForChild("PlayerGui", 20) or game:GetService("CoreGui")
 local RS = game:GetService("ReplicatedStorage")
-local UIS = game:GetService("UserInputService")
 local HttpService = game:GetService("HttpService")
-local VIM = game:GetService("VirtualInputManager")
 
 local URL = "https://raw.githubusercontent.com/Pawan-Tamang/DQ-AutoProgress/main/script.lua"
 pcall(function()
- local code = "repeat task.wait() until game:IsLoaded() loadstring(game:HttpGet(\"" .. URL .. "\"))()"
+ if getgenv and getgenv().DQQueued then return end
+ if getgenv then getgenv().DQQueued = true end
+ local code = "getgenv().DQRunning=nil getgenv().DQQueued=nil repeat task.wait() until game:IsLoaded() loadstring(game:HttpGet(\"" .. URL .. "\"))()"
  if queue_on_teleport then queue_on_teleport(code)
  elseif syn and syn.queue_on_teleport then syn.queue_on_teleport(code) end
 end)
@@ -57,8 +57,8 @@ local PROG = {
  {"Northern Lands",180,"Insane"},{"Northern Lands",185,"Nightmare"},
 }
 local RUN = "DQRun.json"
-local function saveRun(map, diff, lv)
- pcall(function() if writefile then writefile(RUN, HttpService:JSONEncode({map=map,diff=diff,lv=lv,t=os.time()})) end end)
+local function saveRun(map, diff)
+ pcall(function() if writefile then writefile(RUN, HttpService:JSONEncode({map=map,diff=diff,t=os.time()})) end end)
 end
 local function loadRun()
  local out
@@ -93,14 +93,14 @@ local function fireNamed(name, invoke, ...)
  local ok = pcall(function()
   if invoke or ev:IsA("RemoteFunction") then ev:InvokeServer(unpack(args)) else ev:FireServer(unpack(args)) end
  end)
- if ok then print("[DQ]", name, "ok") end
+ if ok then print("[DQ]", name) end
  return ok
 end
 local function fireStart() return fireNamed("startDungeon", false) end
 local function createLobby()
  local map, diff = pick()
- print("[DQ] create", map, diff, level())
- saveRun(map, diff, level())
+ print("[DQ] create", map, diff)
+ saveRun(map, diff)
  return fireNamed("createLobby", true, map, diff, 0, S.Hardcore, S.Private, false)
 end
 local function joinHost()
@@ -111,10 +111,6 @@ end
 local function replay()
  print("[DQ] replay")
  return fireNamed("replay", false) or fireNamed("replayDungeon", false) or fireNamed("playAgain", false)
-end
-local function returnLobby()
- print("[DQ] return lobby")
- return fireNamed("returnToLobby", false) or fireNamed("leaveDungeon", false)
 end
 local function memberHere(name)
  if st.seen[name:lower()] then return true end
@@ -136,33 +132,17 @@ pcall(function()
 end)
 local function isHost() return LP.Name:lower() == S.HostName:lower() end
 
--- Only victory screens, NOT the always-visible Return to Lobby button
-local WIN = {"victory","dungeon complete","you win","boss defeated","mission complete","stage clear"}
+local WIN = {"victory","dungeon complete","you win","boss defeated","mission complete"}
 local function guiSaysWin()
  for _,o in ipairs(PlayerGui:GetDescendants()) do
   if (o:IsA("TextLabel") or o:IsA("TextButton")) and o.Visible ~= false then
    local t = string.lower(o.Text or "")
-   for _,w in ipairs(WIN) do
-    if t == w or string.find(t, w, 1, true) then return true end
-   end
-  end
- end
- return false
-end
-local function isPlayerModel(model)
- for _,p in ipairs(Players:GetPlayers()) do
-  if p.Character == model or p.Name == model.Name then return true end
- end
- return false
-end
-local function bossDead()
- for _,m in ipairs(workspace:GetDescendants()) do
-  if m:IsA("Model") and not isPlayerModel(m) then
-   local n = string.lower(m.Name)
-   local tagged = m:FindFirstChild("Boss") or m:GetAttribute("IsBoss")
-   if tagged or n == "boss" or string.sub(n, -4) == "boss" or string.find(n, "boss ", 1, true) then
-    local hum = m:FindFirstChildOfClass("Humanoid")
-    if hum and hum.Health <= 0 then return true end
+   if string.find(t, "return to lobby", 1, true) then
+    -- ignore always-on leave button
+   else
+    for _,w in ipairs(WIN) do
+     if string.find(t, w, 1, true) then return true end
+    end
    end
   end
  end
@@ -170,38 +150,29 @@ local function bossDead()
 end
 local function clickAttack()
  if not S.AutoClick or not isDungeon() or st.finished then return end
- local char = LP.Character
- if char then
-  local hum = char:FindFirstChildOfClass("Humanoid")
-  local tool = char:FindFirstChildOfClass("Tool") or LP.Backpack:FindFirstChildOfClass("Tool")
-  if tool and hum and tool.Parent ~= char then pcall(function() hum:EquipTool(tool) end) end
-  tool = char:FindFirstChildOfClass("Tool")
-  if tool then pcall(function() tool:Activate() end) end
- end
- pcall(function()
-  VIM:SendMouseButtonEvent(0, 0, 0, true, game, 1)
-  VIM:SendMouseButtonEvent(0, 0, 0, false, game, 1)
- end)
+ local char = LP.Character if not char then return end
+ local hum = char:FindFirstChildOfClass("Humanoid")
+ local tool = char:FindFirstChildOfClass("Tool") or LP.Backpack:FindFirstChildOfClass("Tool")
+ if tool and hum and tool.Parent ~= char then pcall(function() hum:EquipTool(tool) end) end
+ tool = char:FindFirstChildOfClass("Tool")
+ if tool then pcall(function() tool:Activate() end) end
 end
-local function needNextDungeon()
+local function needNext()
  local run = loadRun()
  local map, diff = pick()
- if not run then return false end
- return run.map ~= map or run.diff ~= diff
+ return run and (run.map ~= map or run.diff ~= diff)
 end
 local function onFinished()
  if st.finished then return end
  st.finished = true
- st.name = "Finished"
- print("[DQ] real finish")
- task.wait(2)
- if needNextDungeon() then
-  st.name = "NextBest-return"
-  returnLobby()
+ print("[DQ] victory")
+ if needNext() then
+  st.name = "NeedNext-waitHub"
+  -- do NOT fire leave/return. wait until the game sends you back.
  else
   st.name = "Replay"
-  if S.AutoReplay then replay() end
-  task.delay(12, function() st.finished = false end)
+  if isHost() and S.AutoReplay then replay() end
+  task.delay(15, function() st.finished = false end)
  end
 end
 
@@ -210,7 +181,7 @@ local gui = Instance.new("ScreenGui") gui.Name = "DQAutoProgress" gui.ResetOnSpa
 pcall(function() gui.Parent = PlayerGui end)
 if not gui.Parent then pcall(function() gui.Parent = game:GetService("CoreGui") end) end
 local win = Instance.new("Frame")
-win.Size = UDim2.new(0,330,0,200) win.Position = UDim2.new(0,16,0.5,-100)
+win.Size = UDim2.new(0,330,0,190) win.Position = UDim2.new(0,16,0.5,-95)
 win.BackgroundColor3 = Color3.fromRGB(16,16,18) win.BorderSizePixel = 0
 win.Active = true win.Draggable = true win.Parent = gui
 Instance.new("UICorner", win).CornerRadius = UDim.new(0,8)
@@ -253,13 +224,13 @@ if isDungeon() then
  task.spawn(function()
   while gui.Parent and isDungeon() do
    clickAttack()
-   task.wait(0.12)
+   task.wait(0.15)
   end
  end)
  task.spawn(function()
-  task.wait(20)
+  task.wait(25)
   while gui.Parent and isDungeon() do
-   if guiSaysWin() or bossDead() then onFinished() end
+   if guiSaysWin() then onFinished() end
    task.wait(2)
   end
  end)
