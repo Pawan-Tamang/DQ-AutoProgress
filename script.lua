@@ -1,7 +1,7 @@
--- DQ v31 auto sell <120
+-- DQ v32 advance to King's Castle at 70
 if getgenv and getgenv().DQRunning then return end
 if getgenv then getgenv().DQRunning = true end
-print("[DQ] v31", game.PlaceId)
+print("[DQ] v32", game.PlaceId)
 repeat task.wait() until game:IsLoaded()
 local Players = game:GetService("Players")
 repeat task.wait() until Players.LocalPlayer
@@ -13,7 +13,7 @@ local HttpService = game:GetService("HttpService")
 local LogService = game:GetService("LogService")
 local Lighting = game:GetService("Lighting")
 
-local URL = "https://raw.githubusercontent.com/Pawan-Tamang/DQ-AutoProgress/main/script.lua?v=31"
+local URL = "https://raw.githubusercontent.com/Pawan-Tamang/DQ-AutoProgress/main/script.lua?v=32"
 pcall(function()
  if getgenv and getgenv().DQQueued then return end
  if getgenv then getgenv().DQQueued = true end
@@ -32,6 +32,10 @@ local function isDungeon()
  local v = dungeonName()
  return v ~= "" and v ~= "Lobby"
 end
+local function norm(s)
+ return string.lower((s or ""):gsub("[^%w]",""))
+end
+local function sameMap(a,b) return norm(a)==norm(b) and norm(a)~="" end
 
 local ALLOW = { splash_kyrie = true, spikytamanggg = true, kurokazahood = true }
 local S = {
@@ -40,8 +44,7 @@ local S = {
  AutoBest = true, Hardcore = true, Private = false,
  WaitMembers = true, AutoAccept = true, AutoCreate = true, AutoJoin = true,
  AutoStart = true, AutoClick = true, AutoReplay = true, FPSBoost = true,
- AutoSell = true, SellBelow = 120,
- NeedCount = 2, SwingMs = 80,
+ AutoSell = true, SellBelow = 120, NeedCount = 2, SwingMs = 80,
 }
 pcall(function()
  if readfile and isfile and isfile("DQAutoProgress.json") then
@@ -49,21 +52,13 @@ pcall(function()
   if type(d) == "table" then for k,v in pairs(d) do S[k] = v end end
  end
 end)
+S.AutoBest = true
 S.Private = false
 S.WaitMembers = true
 S.NeedCount = 2
 S.Members = {"splash_kyrie", "spikytamanggg"}
-S.SellBelow = tonumber(S.SellBelow) or 120
-ALLOW = { splash_kyrie = true, spikytamanggg = true, [S.HostName:lower()] = true, [LP.Name:lower()] = true }
+ALLOW = { splash_kyrie=true, spikytamanggg=true, [S.HostName:lower()]=true, [LP.Name:lower()]=true }
 local function save() pcall(function() if writefile then writefile("DQAutoProgress.json", HttpService:JSONEncode(S)) end end) end
-
-local function applyFPS()
- if not S.FPSBoost then return end
- pcall(function() settings().Rendering.QualityLevel = Enum.QualityLevel.Level01 end)
- Lighting.GlobalShadows = false
- Lighting.FogEnd = 9e9
- print("[DQ] fps boost on")
-end
 
 local PROG = {
  {"Desert Temple",1,"Easy"},{"Desert Temple",6,"Medium"},{"Desert Temple",12,"Hard"},
@@ -83,11 +78,10 @@ local PROG = {
  {"Enchanted Forest",170,"Insane"},{"Enchanted Forest",175,"Nightmare"},
  {"Northern Lands",180,"Insane"},{"Northern Lands",185,"Nightmare"},
 }
-local RUN = "DQRun.json"
-local function saveRun(map,diff,lv) pcall(function() if writefile then writefile(RUN, HttpService:JSONEncode({map=map,diff=diff,lv=lv,t=os.time()})) end end) end
-local function loadRun()
- local out pcall(function() if readfile and isfile and isfile(RUN) then out = HttpService:JSONDecode(readfile(RUN)) end end)
- return type(out)=="table" and out or nil
+local function applyFPS()
+ if not S.FPSBoost then return end
+ pcall(function() settings().Rendering.QualityLevel = Enum.QualityLevel.Level01 end)
+ Lighting.GlobalShadows = false
 end
 local st = { name = isDungeon() and "InDungeon" or "Hub", created=false, joined=false, started=false, seen={}, lastSell=0 }
 
@@ -108,113 +102,90 @@ local function fireRemote(names, invoke, ...)
  if ok then print("[DQ]", ev.Name) end
  return ok
 end
-
-local function invFolder()
- for _,n in ipairs({"Inventory","inventory","Items","ItemInventory","BackpackItems"}) do
-  local f = LP:FindFirstChild(n)
-  if f then return f end
+local function level()
+ local best=1
+ local ls=LP:FindFirstChild("leaderstats")
+ if ls and ls:FindFirstChild("Level") then best=math.max(best,tonumber(ls.Level.Value) or 1) end
+ for _,o in ipairs(PlayerGui:GetDescendants()) do
+  if o.Name=="playerStatus" or o.Name=="Level" then
+   local t="" pcall(function() t=tostring(o.Text or o.Value or "") end)
+   local n=tonumber(string.match(t, "(%d+)"))
+   if n then best=math.max(best,n) end
+  end
  end
- local ls = LP:FindFirstChild("leaderstats")
- if ls and ls:FindFirstChild("Inventory") then return ls.Inventory end
- return nil
+ return best
 end
-local function itemNum(item)
- for _,n in ipairs({"Level","ItemLevel","Req","LevelReq","levelReq","RequiredLevel","Power","ItemPower"}) do
-  local v = item:FindFirstChild(n)
+local function pick()
+ local lv,cur=level(),PROG[1]
+ for _,d in ipairs(PROG) do if lv>=d[2] then cur=d else break end end
+ return cur[1],cur[3],lv
+end
+local function lobbyFolder()
+ local g=workspace:FindFirstChild("games")
+ return g and g:FindFirstChild("inLobby")
+end
+local function hostLobby()
+ local f=lobbyFolder() if not f then return end
+ for _,l in ipairs(f:GetChildren()) do if l.Name:lower()==S.HostName:lower() then return l end end
+end
+local function lobbyMap(lobby)
+ if not lobby then return "" end
+ for _,n in ipairs({"mapName","MapName","map","Map","dungeon","Dungeon"}) do
+  local v=lobby:FindFirstChild(n)
   if v then
-   local num = tonumber(v.Value)
-   if num then return num, n end
-  end
-  local a = item:GetAttribute(n)
-  if tonumber(a) then return tonumber(a), n end
- end
- return nil
-end
-local function isEquipped(item)
- local char = LP.Character
- if char and char:FindFirstChild(item.Name) then return true end
- local eq = LP:FindFirstChild("Equipped") or LP:FindFirstChild("equipped")
- if eq and eq:FindFirstChild(item.Name) then return true end
- if item:GetAttribute("Equipped") == true then return true end
- local e = item:FindFirstChild("Equipped")
- if e and e.Value == true then return true end
- return false
-end
-local function sellLow()
- if not S.AutoSell then return end
- if tick() - st.lastSell < 8 then return end
- st.lastSell = tick()
- local inv = invFolder()
- if not inv then
-  print("[DQ] no inventory folder on player")
-  return
- end
- local sold = 0
- for _,item in ipairs(inv:GetChildren()) do
-  if isEquipped(item) then continue end
-  local n = string.lower(item.Name)
-  if n:find("inner rage") or n:find("inner focus") or n:find("enhanced") then continue end
-  local lv, src = itemNum(item)
-  if lv and lv < (S.SellBelow or 120) then
-   local ok = fireRemote({"sellItem","sellItems","sell"}, true, item)
-   if not ok then ok = fireRemote({"sellItem","sellItems","sell"}, false, item) end
-   if not ok then ok = fireRemote({"sellItem"}, true, item.Name) end
-   if ok then sold += 1 print("[DQ] sold", item.Name, lv, src) end
+   local ok,val=pcall(function() return v.Value end)
+   if ok and val then return tostring(val) end
+   return v.Name
   end
  end
- if sold > 0 then print("[DQ] sold count", sold) end
+ for _,c in ipairs(lobby:GetDescendants()) do
+  if c.Name:lower():find("map") then
+   local ok,val=pcall(function() return c.Value end)
+   if ok and type(val)=="string" and #val>2 then return val end
+  end
+ end
+ return ""
 end
-
+local function leaveLobby()
+ fireRemote({"returnToLobby","leaveDungeon","leaveLobby","exitDungeon","cancelLobby"}, false)
+end
+local function createLobby()
+ local map,diff,lv=pick()
+ print("[DQ] create PUBLIC", map, diff, "lv"..tostring(lv))
+ return fireRemote({"createLobby","createDungeon"}, true, map, diff, 0, S.Hardcore, false, false)
+end
+local function joinHost()
+ local lobby=hostLobby() if not lobby then return false end
+ return fireRemote({"joinDungeon"}, true, lobby.Name)
+end
+local function replay() return fireRemote({"replayDungeon","replay"}, false) end
+local function allowed(name) return ALLOW[(name or ""):lower()]==true end
 local function kickName(name)
- if not name or ALLOW[name:lower()] then return end
- print("[DQ] kick", name)
- fireRemote({"kickPlayer","kickFromLobby","removePlayer","kick"}, false, name)
+ if not name or allowed(name) then return end
+ fireRemote({"kickPlayer","kickFromLobby","removePlayer"}, false, name)
 end
-local function allowed(name) return ALLOW[(name or ""):lower()] == true end
 local function markAdded(name)
  if not name or name=="" then return end
- local n = name:lower():gsub("[^%w_]","")
+ local n=name:lower():gsub("[^%w_]","")
  if n=="" then return end
  if not allowed(n) then kickName(name) return end
  if n==LP.Name:lower() or n==S.HostName:lower() then return end
  if not st.seen[n] then st.seen[n]=true print("[DQ] added", n) end
 end
-local function parseAdded(text)
- if type(text)~="string" then return end
- local a = string.match(string.lower(text), "player added to lobby:%s*(%S+)")
- if a then markAdded(a) end
-end
-pcall(function() LogService.MessageOut:Connect(function(msg) parseAdded(msg) end) end)
-
-local function lobbyFolder()
- local g = workspace:FindFirstChild("games")
- return g and g:FindFirstChild("inLobby")
-end
-local function hostLobby()
- local f = lobbyFolder() if not f then return end
- for _,l in ipairs(f:GetChildren()) do if l.Name:lower()==S.HostName:lower() then return l end end
-end
-local function purgeLobby()
- local lobby = hostLobby()
- if lobby then
-  for _,c in ipairs(lobby:GetDescendants()) do
-   if c.Name and not allowed(c.Name) and Players:FindFirstChild(c.Name) then kickName(c.Name) end
-  end
- end
-end
+pcall(function()
+ LogService.MessageOut:Connect(function(msg)
+  local a=string.match(string.lower(tostring(msg)), "player added to lobby:%s*(%S+)")
+  if a then markAdded(a) end
+ end)
+end)
 local function seenCount() local n=0 for k in pairs(st.seen) do if allowed(k) then n+=1 end end return n end
-local function partyReady() return seenCount() >= (S.NeedCount or 2) end
-local function level()
- local best=1
- local ls=LP:FindFirstChild("leaderstats")
- if ls and ls:FindFirstChild("Level") then best=math.max(best,tonumber(ls.Level.Value) or 1) end
- local run=loadRun() if run and tonumber(run.lv) then best=math.max(best,tonumber(run.lv)) end
- return best
-end
-local function pick()
- local lv,cur=level(),PROG[1]
- if S.AutoBest then for _,d in ipairs(PROG) do if lv>=d[2] then cur=d else break end end end
- return cur[1],cur[3],lv
+local function partyReady() return seenCount()>=(S.NeedCount or 2) end
+local function isHost() return LP.Name:lower()==S.HostName:lower() end
+local function dungeonFinished()
+ local d=workspace:FindFirstChild("dungeon")
+ local br=d and d:FindFirstChild("bossRoom")
+ local f=br and br:FindFirstChild("dungeonFinished")
+ return f and f.Value==true
 end
 local function fireBtn(o)
  pcall(function()
@@ -226,40 +197,32 @@ local function fireBtn(o)
   end
  end)
 end
-local function isOurs(o) return o:FindFirstAncestor("DQManager") ~= nil end
-local function clickDungeonStart()
- for _,o in ipairs(PlayerGui:GetDescendants()) do
-  if o:IsA("TextButton") and o.Visible~=false and not isOurs(o) then
-   local t="" pcall(function() t=string.gsub(string.lower(o.Text or ""),"%s+","") end)
-   if t=="start" or t=="startdungeon" then fireBtn(o) return true end
-  end
- end
-end
 local function fireStart()
- purgeLobby() task.wait(0.4)
  print("[DQ] START now")
  fireRemote({"startDungeon"}, false)
  task.wait(0.3)
  fireRemote({"changeStartValue"}, false)
- clickDungeonStart()
 end
-local function createLobby()
+local function afterWin()
  local map,diff,lv=pick()
- print("[DQ] create PUBLIC", map, diff, lv)
- saveRun(map,diff,lv)
- return fireRemote({"createLobby","createDungeon"}, true, map, diff, 0, S.Hardcore, false, false)
+ local cur=dungeonName()
+ print("[DQ] win current=",cur," next=",map,diff,lv)
+ if sameMap(cur,map) then
+  if isHost() then replay() end
+ else
+  print("[DQ] leaving for next dungeon")
+  leaveLobby()
+ end
 end
-local function joinHost()
- local lobby=hostLobby() if not lobby then return false end
- return fireRemote({"joinDungeon"}, true, lobby.Name)
-end
-local function replay() return fireRemote({"replayDungeon","replay"}, false) end
-local function isHost() return LP.Name:lower()==S.HostName:lower() end
-local function dungeonFinished()
- local d=workspace:FindFirstChild("dungeon")
- local br=d and d:FindFirstChild("bossRoom")
- local f=br and br:FindFirstChild("dungeonFinished")
- return f and f.Value==true
+local function lobbyIsWanted()
+ local lobby=hostLobby()
+ if not lobby then return false end
+ local have=lobbyMap(lobby)
+ local want=pick()
+ if have=="" then return true end
+ if sameMap(have,want) then return true end
+ print("[DQ] wrong lobby", have, "want", want)
+ return false
 end
 local skillHeld=false
 UIS.InputBegan:Connect(function(i)
@@ -279,17 +242,16 @@ local old=PlayerGui:FindFirstChild("DQManager") if old then old:Destroy() end
 local gui=Instance.new("ScreenGui") gui.Name="DQManager" gui.ResetOnSpawn=false gui.DisplayOrder=100
 pcall(function() gui.Parent=PlayerGui end)
 if not gui.Parent then pcall(function() gui.Parent=game:GetService("CoreGui") end) end
-local BG,PANEL,SIDE,TEXT,MUTED,ACC=Color3.fromRGB(18,18,20),Color3.fromRGB(28,28,32),Color3.fromRGB(22,22,24),Color3.fromRGB(230,230,235),Color3.fromRGB(150,150,160),Color3.fromRGB(140,90,255)
+local BG,PANEL,SIDE,TEXT,ACC=Color3.fromRGB(18,18,20),Color3.fromRGB(28,28,32),Color3.fromRGB(22,22,24),Color3.fromRGB(230,230,235),Color3.fromRGB(140,90,255)
 local root=Instance.new("Frame") root.Size=UDim2.new(0,720,0,430) root.Position=UDim2.new(0,16,0,80)
 root.BackgroundColor3=BG root.BorderSizePixel=0 root.Active=true root.Draggable=true root.Parent=gui
 Instance.new("UICorner",root).CornerRadius=UDim.new(0,8)
 local top=Instance.new("Frame") top.Size=UDim2.new(1,0,0,36) top.BackgroundColor3=Color3.fromRGB(16,16,18) top.BorderSizePixel=0 top.Parent=root
-local brand=Instance.new("TextLabel") brand.Size=UDim2.new(0,180,1,0) brand.BackgroundTransparency=1 brand.Text="  Manager v31" brand.TextXAlignment=Enum.TextXAlignment.Left brand.TextColor3=TEXT brand.Font=Enum.Font.Gotham brand.TextSize=16 brand.Parent=top
+local brand=Instance.new("TextLabel") brand.Size=UDim2.new(0,200,1,0) brand.BackgroundTransparency=1 brand.Text="  Manager v32" brand.TextXAlignment=Enum.TextXAlignment.Left brand.TextColor3=TEXT brand.Font=Enum.Font.Gotham brand.TextSize=16 brand.Parent=top
 local closeB=Instance.new("TextButton") closeB.Size=UDim2.new(0,28,0,24) closeB.Position=UDim2.new(1,-34,0,6) closeB.BackgroundColor3=Color3.fromRGB(40,40,46) closeB.Text="_" closeB.TextColor3=TEXT closeB.Parent=top
 local reopen=Instance.new("TextButton") reopen.Size=UDim2.new(0,90,0,28) reopen.Position=UDim2.new(0,16,0,16) reopen.BackgroundColor3=ACC reopen.Text="Manager" reopen.TextColor3=Color3.new(1,1,1) reopen.Visible=false reopen.Parent=gui
 closeB.MouseButton1Click:Connect(function() root.Visible=false reopen.Visible=true end)
 reopen.MouseButton1Click:Connect(function() root.Visible=true reopen.Visible=false end)
-UIS.InputBegan:Connect(function(i,g) if not g and i.KeyCode==Enum.KeyCode.RightShift then root.Visible=not root.Visible reopen.Visible=not root.Visible end end)
 local side=Instance.new("Frame") side.Size=UDim2.new(0,140,1,-36) side.Position=UDim2.new(0,0,0,36) side.BackgroundColor3=SIDE side.BorderSizePixel=0 side.Parent=root
 local function sideBtn(txt,yy)
  local b=Instance.new("TextButton") b.Size=UDim2.new(1,-16,0,28) b.Position=UDim2.new(0,8,0,yy) b.BackgroundColor3=Color3.fromRGB(32,32,36) b.Text="  "..txt b.TextXAlignment=Enum.TextXAlignment.Left b.TextColor3=TEXT b.Font=Enum.Font.Gotham b.TextSize=13 b.Parent=side Instance.new("UICorner",b).CornerRadius=UDim.new(0,6) return b
@@ -306,75 +268,55 @@ end
 local mgr=section(mainPage,"Manager",0,0,360,330)
 local stat=section(mainPage,"Status",372,0,188,220)
 local y=34
-local function toggle(parent,label,key,cb)
+local function toggle(parent,label,key)
  local row=Instance.new("Frame") row.Size=UDim2.new(1,-20,0,26) row.Position=UDim2.new(0,10,0,y) row.BackgroundTransparency=1 row.Parent=parent
  local l=Instance.new("TextLabel") l.Size=UDim2.new(1,-54,1,0) l.BackgroundTransparency=1 l.Text=label l.TextXAlignment=Enum.TextXAlignment.Left l.TextColor3=TEXT l.Font=Enum.Font.Gotham l.TextSize=13 l.Parent=row
  local pill=Instance.new("TextButton") pill.Size=UDim2.new(0,40,0,20) pill.Position=UDim2.new(1,-44,0.5,-10) pill.Text="" pill.Parent=row Instance.new("UICorner",pill).CornerRadius=UDim.new(1,0)
  local kn=Instance.new("Frame") kn.Size=UDim2.new(0,16,0,16) kn.BackgroundColor3=Color3.new(1,1,1) kn.Parent=pill Instance.new("UICorner",kn).CornerRadius=UDim.new(1,0)
  local function paint() pill.BackgroundColor3=S[key] and ACC or Color3.fromRGB(70,70,78) kn.Position=UDim2.new(S[key] and 1 or 0,S[key] and -18 or 2,0.5,-8) end
- paint() pill.MouseButton1Click:Connect(function() S[key]=not S[key] paint() save() if cb then cb(S[key]) end end) y+=28
+ paint() pill.MouseButton1Click:Connect(function() S[key]=not S[key] paint() save() end) y+=28
 end
 toggle(mgr,"Auto Best Dungeon","AutoBest") toggle(mgr,"Hardcore Lobby","Hardcore") toggle(mgr,"Private Lobby","Private") toggle(mgr,"Wait For Members After restart","WaitMembers")
 local mem=Instance.new("TextBox") mem.Size=UDim2.new(1,-20,0,24) mem.Position=UDim2.new(0,10,0,y) mem.BackgroundColor3=Color3.fromRGB(22,22,26) mem.Text=table.concat(S.Members,", ") mem.TextColor3=TEXT mem.Font=Enum.Font.Gotham mem.TextSize=12 mem.Parent=mgr
-mem.FocusLost:Connect(function()
- local a={}
- ALLOW={ [S.HostName:lower()]=true, [LP.Name:lower()]=true }
- for n in string.gmatch(mem.Text or "","[^,%s]+") do table.insert(a,n) ALLOW[n:lower()]=true end
- S.Members=a save()
-end) y+=32
-toggle(mgr,"Auto Accept Join Requests","AutoAccept")
+y+=32 toggle(mgr,"Auto Accept Join Requests","AutoAccept")
 local sl=Instance.new("TextLabel") sl.Size=UDim2.new(1,-12,1,-30) sl.Position=UDim2.new(0,8,0,28) sl.BackgroundTransparency=1 sl.TextXAlignment=Enum.TextXAlignment.Left sl.TextYAlignment=Enum.TextYAlignment.Top sl.TextColor3=TEXT sl.Font=Enum.Font.Gotham sl.TextSize=12 sl.TextWrapped=true sl.Parent=stat
 local setBox=section(setPage,"UI Settings",0,0,560,340) y=34
-toggle(setBox,"Auto Create (host)","AutoCreate") toggle(setBox,"Auto Join (alts)","AutoJoin") toggle(setBox,"Auto Start","AutoStart") toggle(setBox,"Auto Replay","AutoReplay") toggle(setBox,"Auto Swing","AutoClick")
-toggle(setBox,"FPS Boost","FPSBoost", function(on) if on then applyFPS() end end)
-toggle(setBox,"Auto Sell <120","AutoSell")
-local host=Instance.new("TextBox") host.Size=UDim2.new(1,-20,0,24) host.Position=UDim2.new(0,10,0,y) host.BackgroundColor3=Color3.fromRGB(22,22,26) host.Text=S.HostName host.TextColor3=TEXT host.Font=Enum.Font.Gotham host.TextSize=12 host.Parent=setBox
-host.FocusLost:Connect(function() S.HostName=host.Text:gsub("%s+","") ALLOW[S.HostName:lower()]=true save() end)
+toggle(setBox,"Auto Create (host)","AutoCreate") toggle(setBox,"Auto Join (alts)","AutoJoin") toggle(setBox,"Auto Start","AutoStart") toggle(setBox,"Auto Replay","AutoReplay") toggle(setBox,"Auto Swing","AutoClick") toggle(setBox,"FPS Boost","FPSBoost") toggle(setBox,"Auto Sell <120","AutoSell")
 task.spawn(function()
  while gui.Parent do
-  local map,diff=pick()
-  sl.Text=string.format("v31\n%s\nState: %s\nBest: %s %s\nParty %d/2\nSell <%s",LP.Name,st.name,map,diff,seenCount(),tostring(S.SellBelow))
+  local map,diff,lv=pick()
+  sl.Text=string.format("v32\n%s lv%s\nState: %s\nNEXT: %s %s\nParty %d/2",LP.Name,tostring(lv),st.name,map,diff,seenCount())
   task.wait(0.4)
  end
 end)
-
 if S.FPSBoost then applyFPS() end
-
-task.spawn(function()
- while gui.Parent do
-  if S.AutoSell then sellLow() end
-  task.wait(12)
- end
-end)
 
 if isDungeon() then
  task.spawn(function()
   st.name="Wait5s" task.wait(5)
-  if not S.AutoStart then return end
-  for i=1,8 do st.name="StartRemote "..i fireStart() task.wait(1.2) end
+  if S.AutoStart then for i=1,6 do fireStart() task.wait(1.2) end end
   st.name="Swinging"
  end)
- task.spawn(function() while gui.Parent do if isDungeon() and S.AutoClick then swing() end task.wait((S.SwingMs or 80)/1000) end end)
+ task.spawn(function() while gui.Parent do if S.AutoClick then swing() end task.wait(0.08) end end)
  task.spawn(function()
-  task.wait(20)
+  task.wait(15)
   while gui.Parent and isDungeon() do
-   if dungeonFinished() then
-    st.name="Finished"
-    sellLow()
-    if isHost() and S.AutoReplay then replay() end
-    task.wait(12)
-   end
+   if dungeonFinished() then st.name="Finished" afterWin() task.wait(12) end
    task.wait(2)
   end
  end)
 else
  task.spawn(function()
-  st.name="WaitLevel" for _=1,15 do if level()>1 then break end task.wait(0.4) end
   while gui.Parent and not isDungeon() do
    if isHost() then
-    purgeLobby()
-    if S.AutoCreate and not hostLobby() and not st.created then
-     if level()<=1 then st.name="WaitLevel" else st.created=createLobby() or st.created st.name=st.created and "CreatedPublic" or "CreateFail" end
+    local want=select(1,pick())
+    if hostLobby() and not lobbyIsWanted() then
+     st.created=false st.started=false st.seen={}
+     leaveLobby()
+     st.name="DropOldLobby"
+    elseif S.AutoCreate and not hostLobby() and not st.created then
+     st.created=createLobby() or st.created
+     st.name=st.created and ("Created "..want) or "CreateFail"
     elseif hostLobby() then
      st.created=true
      if S.WaitMembers and not partyReady() then
@@ -387,7 +329,7 @@ else
     if S.AutoJoin and hostLobby() and not st.joined then st.joined=joinHost() or st.joined st.name=st.joined and "Joined" or "JoinFail"
     elseif st.joined then st.name="WaitingStart" else st.name="Looking" end
    end
-   task.wait(0.8)
+   task.wait(1)
   end
  end)
 end
