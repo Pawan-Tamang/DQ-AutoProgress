@@ -1,7 +1,7 @@
--- DQ v33 level detect + current dungeon status
+-- DQ v34 create lobby fixed
 if getgenv and getgenv().DQRunning then return end
 if getgenv then getgenv().DQRunning = true end
-print("[DQ] v33", game.PlaceId)
+print("[DQ] v34", game.PlaceId)
 repeat task.wait() until game:IsLoaded()
 local Players = game:GetService("Players")
 repeat task.wait() until Players.LocalPlayer
@@ -11,9 +11,8 @@ local RS = game:GetService("ReplicatedStorage")
 local UIS = game:GetService("UserInputService")
 local HttpService = game:GetService("HttpService")
 local LogService = game:GetService("LogService")
-local Lighting = game:GetService("Lighting")
 
-local URL = "https://raw.githubusercontent.com/Pawan-Tamang/DQ-AutoProgress/main/script.lua?v=33"
+local URL = "https://raw.githubusercontent.com/Pawan-Tamang/DQ-AutoProgress/main/script.lua?v=34"
 pcall(function()
  if getgenv and getgenv().DQQueued then return end
  if getgenv then getgenv().DQQueued = true end
@@ -35,13 +34,11 @@ end
 local function norm(s) return string.lower((s or ""):gsub("[^%w]","")) end
 local function sameMap(a,b) return norm(a)==norm(b) and norm(a)~="" end
 
-local ALLOW = { splash_kyrie=true, spikytamanggg=true, kurokazahood=true }
 local S = {
  HostName="kurokazahood", Members={"splash_kyrie","spikytamanggg"},
  AutoBest=true, Hardcore=true, Private=false, WaitMembers=true,
  AutoAccept=true, AutoCreate=true, AutoJoin=true, AutoStart=true,
- AutoClick=true, AutoReplay=true, FPSBoost=true, AutoSell=true,
- SellBelow=120, NeedCount=2,
+ AutoClick=true, AutoReplay=true, FPSBoost=true, NeedCount=2,
 }
 pcall(function()
  if readfile and isfile and isfile("DQAutoProgress.json") then
@@ -51,7 +48,7 @@ pcall(function()
 end)
 S.AutoBest=true S.Private=false S.WaitMembers=true S.NeedCount=2
 S.Members={"splash_kyrie","spikytamanggg"}
-ALLOW={splash_kyrie=true,spikytamanggg=true,[S.HostName:lower()]=true,[LP.Name:lower()]=true}
+local ALLOW={splash_kyrie=true,spikytamanggg=true,[S.HostName:lower()]=true,[LP.Name:lower()]=true}
 local function save() pcall(function() if writefile then writefile("DQAutoProgress.json", HttpService:JSONEncode(S)) end end) end
 
 local PROG = {
@@ -72,56 +69,38 @@ local PROG = {
  {"Enchanted Forest",170,"Insane"},{"Enchanted Forest",175,"Nightmare"},
  {"Northern Lands",180,"Insane"},{"Northern Lands",185,"Nightmare"},
 }
-local st = { name=isDungeon() and "InDungeon" or "Hub", created=false, joined=false, started=false, seen={}, lvl=1, lvlSrc="?" }
+local st={name=isDungeon() and "InDungeon" or "Hub",created=false,joined=false,started=false,seen={},lvl=1,lvlSrc="?",lastCreate=0,lastLeave=0}
 
 local function grabNum(obj)
  if not obj then return nil end
  local ok,val=pcall(function()
   if obj:IsA("ValueBase") then return obj.Value end
-  if obj:IsA("TextLabel") or obj:IsA("TextButton") or obj:IsA("TextBox") then return obj.Text end
+  if obj:IsA("TextLabel") or obj:IsA("TextButton") then return obj.Text end
   return obj.Value or obj.Text
  end)
  if not ok or val==nil then return nil end
  if type(val)=="number" then return val end
- local s=tostring(val)
- local n=tonumber(string.match(s, "Lv%.?%s*(%d+)") or string.match(s, "[Ll]evel%s*:?%s*(%d+)") or string.match(s, "(%d+)"))
- return n
+ return tonumber(string.match(tostring(val), "Lv%.?%s*(%d+)") or string.match(tostring(val), "[Ll]evel%s*:?%s*(%d+)") or string.match(tostring(val), "(%d+)"))
 end
-local function consider(best, n, src)
- if type(n)=="number" and n>=1 and n<10000 and n>best then return n, src end
- return best, src
+local function consider(best,n,src)
+ if type(n)=="number" and n>=1 and n<10000 and n>best then return n,src end
+ return best,src
 end
 local function level()
  local best,src=1,"default"
- local function scan(root, tag)
+ local ls=LP:FindFirstChild("leaderstats")
+ if ls then for _,o in ipairs(ls:GetChildren()) do best,src=consider(best,grabNum(o),"leaderstats."..o.Name) end end
+ local function scan(root,tag)
   if not root then return end
   for _,o in ipairs(root:GetDescendants()) do
    local nm=string.lower(o.Name or "")
-   if nm=="level" or nm=="lvl" or nm=="lv" or nm:find("playerstatus") or nm=="leveltext" then
-    best,src=consider(best, grabNum(o), tag.."."..o.Name)
+   if nm=="level" or nm=="lvl" or nm:find("playerstatus") then
+    best,src=consider(best,grabNum(o),tag.."."..o.Name)
    end
   end
  end
- local ls=LP:FindFirstChild("leaderstats")
- if ls then
-  for _,o in ipairs(ls:GetChildren()) do
-   best,src=consider(best, grabNum(o), "leaderstats."..o.Name)
-  end
- end
- scan(LP, "player")
- scan(PlayerGui, "gui")
- -- nametag above character often "67" next to name
- local char=LP.Character
- if char then
-  local hum=char:FindFirstChildOfClass("Humanoid")
-  if hum then
-   local dt=tostring(hum.DisplayName or "").." "..tostring(hum.Name or "")
-   local n=tonumber(string.match(dt, "(%d+)"))
-   best,src=consider(best, n, "humanoid")
-  end
-  scan(char, "char")
- end
- st.lvl, st.lvlSrc = best, src
+ scan(LP,"player") scan(PlayerGui,"gui")
+ st.lvl,st.lvlSrc=best,src
  return best
 end
 local function pick()
@@ -160,7 +139,7 @@ local function lobbyMap(lobby)
   local v=lobby:FindFirstChild(n)
   if v then
    local ok,val=pcall(function() return v.Value end)
-   if ok and val then return tostring(val) end
+   if ok and val and tostring(val)~="" then return tostring(val) end
   end
  end
  return ""
@@ -172,12 +151,11 @@ local function currentDungeon()
  if lm~="" then return lm end
  return "Lobby"
 end
-local function leaveLobby()
- fireRemote({"returnToLobby","leaveDungeon","leaveLobby","exitDungeon","cancelLobby"}, false)
-end
 local function createLobby()
+ if tick()-st.lastCreate<4 then return st.created end
+ st.lastCreate=tick()
  local map,diff,lv=pick()
- print("[DQ] create", map, diff, "lv"..tostring(lv), st.lvlSrc)
+ print("[DQ] create", map, diff, "lv"..tostring(lv))
  return fireRemote({"createLobby","createDungeon"}, true, map, diff, 0, S.Hardcore, false, false)
 end
 local function joinHost()
@@ -185,16 +163,17 @@ local function joinHost()
  return fireRemote({"joinDungeon"}, true, lobby.Name)
 end
 local function replay() return fireRemote({"replayDungeon","replay"}, false) end
-local function allowed(name) return ALLOW[(name or ""):lower()]==true end
-local function kickName(name)
- if not name or allowed(name) then return end
- fireRemote({"kickPlayer","kickFromLobby","removePlayer"}, false, name)
+local function leaveLobby()
+ if tick()-st.lastLeave<5 then return end
+ st.lastLeave=tick()
+ fireRemote({"returnToLobby","leaveDungeon","leaveLobby","cancelLobby"}, false)
 end
+local function allowed(name) return ALLOW[(name or ""):lower()]==true end
 local function markAdded(name)
  if not name or name=="" then return end
  local n=name:lower():gsub("[^%w_]","")
- if n=="" or not allowed(n) then if n~="" then kickName(name) end return end
- if n==LP.Name:lower() or n==S.HostName:lower() then return end
+ if n=="" or n==LP.Name:lower() or n==S.HostName:lower() then return end
+ if not allowed(n) then fireRemote({"kickPlayer","kickFromLobby","removePlayer"}, false, name) return end
  if not st.seen[n] then st.seen[n]=true print("[DQ] added", n) end
 end
 pcall(function()
@@ -221,20 +200,8 @@ end
 local function afterWin()
  local map,diff,lv=pick()
  local cur=currentDungeon()
- print("[DQ] win in", cur, "next", map, diff, "lv"..tostring(lv))
- if sameMap(cur,map) then
-  if isHost() then replay() end
- else
-  leaveLobby()
- end
-end
-local function lobbyIsWanted()
- local lobby=hostLobby()
- if not lobby then return false end
- local have=lobbyMap(lobby)
- local want=pick()
- if have=="" then return true end
- return sameMap(have,want)
+ print("[DQ] win in", cur, "next", map, diff, lv)
+ if sameMap(cur,map) then if isHost() then replay() end else leaveLobby() st.created=false st.started=false st.seen={} end
 end
 local skillHeld=false
 UIS.InputBegan:Connect(function(i)
@@ -259,7 +226,7 @@ local root=Instance.new("Frame") root.Size=UDim2.new(0,720,0,430) root.Position=
 root.BackgroundColor3=BG root.BorderSizePixel=0 root.Active=true root.Draggable=true root.Parent=gui
 Instance.new("UICorner",root).CornerRadius=UDim.new(0,8)
 local top=Instance.new("Frame") top.Size=UDim2.new(1,0,0,36) top.BackgroundColor3=Color3.fromRGB(16,16,18) top.BorderSizePixel=0 top.Parent=root
-local brand=Instance.new("TextLabel") brand.Size=UDim2.new(0,200,1,0) brand.BackgroundTransparency=1 brand.Text="  Manager v33" brand.TextXAlignment=Enum.TextXAlignment.Left brand.TextColor3=TEXT brand.Font=Enum.Font.Gotham brand.TextSize=16 brand.Parent=top
+local brand=Instance.new("TextLabel") brand.Size=UDim2.new(0,200,1,0) brand.BackgroundTransparency=1 brand.Text="  Manager v34" brand.TextXAlignment=Enum.TextXAlignment.Left brand.TextColor3=TEXT brand.Font=Enum.Font.Gotham brand.TextSize=16 brand.Parent=top
 local closeB=Instance.new("TextButton") closeB.Size=UDim2.new(0,28,0,24) closeB.Position=UDim2.new(1,-34,0,6) closeB.BackgroundColor3=Color3.fromRGB(40,40,46) closeB.Text="_" closeB.TextColor3=TEXT closeB.Parent=top
 local reopen=Instance.new("TextButton") reopen.Size=UDim2.new(0,90,0,28) reopen.Position=UDim2.new(0,16,0,16) reopen.BackgroundColor3=ACC reopen.Text="Manager" reopen.TextColor3=Color3.new(1,1,1) reopen.Visible=false reopen.Parent=gui
 closeB.MouseButton1Click:Connect(function() root.Visible=false reopen.Visible=true end)
@@ -293,18 +260,13 @@ local mem=Instance.new("TextBox") mem.Size=UDim2.new(1,-20,0,24) mem.Position=UD
 y+=32 toggle(mgr,"Auto Accept Join Requests","AutoAccept")
 local sl=Instance.new("TextLabel") sl.Size=UDim2.new(1,-12,1,-28) sl.Position=UDim2.new(0,8,0,28) sl.BackgroundTransparency=1 sl.TextXAlignment=Enum.TextXAlignment.Left sl.TextYAlignment=Enum.TextYAlignment.Top sl.TextColor3=TEXT sl.Font=Enum.Font.Gotham sl.TextSize=12 sl.TextWrapped=true sl.Parent=stat
 local setBox=section(setPage,"UI Settings",0,0,560,340) y=34
-toggle(setBox,"Auto Create (host)","AutoCreate") toggle(setBox,"Auto Join (alts)","AutoJoin") toggle(setBox,"Auto Start","AutoStart") toggle(setBox,"Auto Replay","AutoReplay") toggle(setBox,"Auto Swing","AutoClick") toggle(setBox,"FPS Boost","FPSBoost") toggle(setBox,"Auto Sell <120","AutoSell")
+toggle(setBox,"Auto Create (host)","AutoCreate") toggle(setBox,"Auto Join (alts)","AutoJoin") toggle(setBox,"Auto Start","AutoStart") toggle(setBox,"Auto Replay","AutoReplay") toggle(setBox,"Auto Swing","AutoClick")
 task.spawn(function()
  while gui.Parent do
   local map,diff,lv=pick()
-  sl.Text=string.format("v33 %s\nLevel: %s\n(%s)\nNOW: %s\nNEXT: %s %s\nState: %s\nParty %d/2",LP.Name,tostring(lv),st.lvlSrc,currentDungeon(),map,diff,st.name,seenCount())
+  sl.Text=string.format("v34 %s\nLevel: %s\nNOW: %s\nNEXT: %s %s\nState: %s\nParty %d/2",LP.Name,tostring(lv),currentDungeon(),map,diff,st.name,seenCount())
   task.wait(0.4)
  end
-end)
-
-task.spawn(function()
- task.wait(2)
- print("[DQ] level", level(), st.lvlSrc, "now", currentDungeon(), "next", pick())
 end)
 
 if isDungeon() then
@@ -323,17 +285,23 @@ if isDungeon() then
  end)
 else
  task.spawn(function()
+  print("[DQ] lobby loop", pick())
   while gui.Parent and not isDungeon() do
-   if isHost() then
-    if hostLobby() and not lobbyIsWanted() then
-     st.created=false st.started=false st.seen={}
+   if isHost() and S.AutoCreate then
+    local wantMap,wantDiff,lv=pick()
+    local lobby=hostLobby()
+    local have=lobbyMap(lobby)
+    if have~="" and not sameMap(have, wantMap) then
+     st.name="WrongLobby "..have
+     st.created=false st.started=false
      leaveLobby()
-     st.name="DropOldLobby"
-    elseif S.AutoCreate and not hostLobby() and not st.created then
-     local want=select(1,pick())
-     st.created=createLobby() or st.created
-     st.name=st.created and ("Created "..want) or "CreateFail"
-    elseif hostLobby() then
+    elseif have=="" or not lobby then
+     -- no real dungeon lobby yet — CREATE
+     st.started=false
+     local ok=createLobby()
+     st.created=ok or st.created
+     st.name=ok and ("Created "..wantMap) or "Creating"
+    else
      st.created=true
      if S.WaitMembers and not partyReady() then
       st.started=false st.name="WAIT "..tostring(seenCount()).."/2"
@@ -341,11 +309,11 @@ else
       st.started=true fireStart() st.name="Started"
      end
     end
-   else
+   elseif not isHost() then
     if S.AutoJoin and hostLobby() and not st.joined then st.joined=joinHost() or st.joined st.name=st.joined and "Joined" or "JoinFail"
     elseif st.joined then st.name="WaitingStart" else st.name="Looking" end
    end
-   task.wait(1)
+   task.wait(1.5)
   end
  end)
 end
