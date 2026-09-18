@@ -1,7 +1,7 @@
--- DQ v35 real level only + create
+-- DQ v36 wait for real level before create
 if getgenv and getgenv().DQRunning then return end
 if getgenv then getgenv().DQRunning = true end
-print("[DQ] v35", game.PlaceId)
+print("[DQ] v36", game.PlaceId)
 repeat task.wait() until game:IsLoaded()
 local Players = game:GetService("Players")
 repeat task.wait() until Players.LocalPlayer
@@ -12,7 +12,7 @@ local UIS = game:GetService("UserInputService")
 local HttpService = game:GetService("HttpService")
 local LogService = game:GetService("LogService")
 
-local URL = "https://raw.githubusercontent.com/Pawan-Tamang/DQ-AutoProgress/main/script.lua?v=35"
+local URL = "https://raw.githubusercontent.com/Pawan-Tamang/DQ-AutoProgress/main/script.lua?v=36"
 pcall(function()
  if getgenv and getgenv().DQQueued then return end
  if getgenv then getgenv().DQQueued = true end
@@ -68,28 +68,41 @@ local PROG = {
  {"Enchanted Forest",170,"Insane"},{"Enchanted Forest",175,"Nightmare"},
  {"Northern Lands",180,"Insane"},{"Northern Lands",185,"Nightmare"},
 }
-local st={name=isDungeon() and "InDungeon" or "Hub",created=false,joined=false,started=false,seen={},lvl=1,lvlSrc="?",lastCreate=0,lastLeave=0}
+local st={name=isDungeon() and "InDungeon" or "Hub",created=false,joined=false,started=false,seen={},lvl=1,lvlSrc="?",lastCreate=0,lastLeave=0,createdMap=""}
 
 local function level()
- -- ONLY real level sources. Never Humanoid (that gave fake 224).
+ local best,src=0,"none"
  local ls=LP:FindFirstChild("leaderstats")
  if ls then
   for _,name in ipairs({"Level","level","Lvl","LVL"}) do
    local o=ls:FindFirstChild(name)
    if o then
     local n=tonumber(o.Value)
-    if n and n>=1 and n<=300 then st.lvl,st.lvlSrc=n,"leaderstats."..name return n end
+    if n and n>=1 and n<=300 then best,src=n,"leaderstats."..name end
    end
   end
  end
- local best,src=1,"gui"
+ -- nametag like "75" not "250/250"
+ local char=LP.Character
+ if char then
+  for _,o in ipairs(char:GetDescendants()) do
+   if o:IsA("TextLabel") or o:IsA("TextButton") then
+    local t=tostring(o.Text or ""):gsub("%s+","")
+    if not t:find("/") then
+     local n=tonumber(t)
+     if n and n>=2 and n<=300 and n>best then best,src=n,"tag."..o.Name end
+    end
+   end
+  end
+ end
  for _,o in ipairs(PlayerGui:GetDescendants()) do
   if o:IsA("TextLabel") or o:IsA("TextButton") then
    local t=tostring(o.Text or "")
    local n=tonumber(string.match(t, "^Lv%.?%s*(%d+)$") or string.match(t, "Level%s*:?%s*(%d+)$"))
-   if n and n>=1 and n<=300 and n>best then best,src=n,"gui."..o.Name end
+   if n and n>=2 and n<=300 and n>best then best,src=n,"gui."..o.Name end
   end
  end
+ if best<1 then best=1 src=src or "default" end
  st.lvl,st.lvlSrc=best,src
  return best
 end
@@ -132,7 +145,7 @@ local function lobbyMap(lobby)
    if ok and val and tostring(val)~="" then return tostring(val) end
   end
  end
- return ""
+ return st.createdMap or ""
 end
 local function currentDungeon()
  local dn=dungeonName()
@@ -142,11 +155,13 @@ local function currentDungeon()
  return "Lobby"
 end
 local function createLobby()
- if tick()-st.lastCreate<4 then return st.created end
+ if tick()-st.lastCreate<5 then return false end
  st.lastCreate=tick()
  local map,diff,lv=pick()
  print("[DQ] create", map, diff, "lv"..tostring(lv), st.lvlSrc)
- return fireRemote({"createLobby","createDungeon"}, true, map, diff, 0, S.Hardcore, false, false)
+ local ok=fireRemote({"createLobby","createDungeon"}, true, map, diff, 0, S.Hardcore, false, false)
+ if ok then st.createdMap=map end
+ return ok
 end
 local function joinHost()
  local lobby=hostLobby() if not lobby then return false end
@@ -154,7 +169,7 @@ local function joinHost()
 end
 local function replay() return fireRemote({"replayDungeon","replay"}, false) end
 local function leaveLobby()
- if tick()-st.lastLeave<5 then return end
+ if tick()-st.lastLeave<6 then return end
  st.lastLeave=tick()
  fireRemote({"returnToLobby","leaveDungeon","leaveLobby","cancelLobby"}, false)
 end
@@ -191,7 +206,7 @@ local function afterWin()
  local map,diff,lv=pick()
  local cur=currentDungeon()
  print("[DQ] win in", cur, "next", map, diff, lv)
- if sameMap(cur,map) then if isHost() then replay() end else leaveLobby() st.created=false st.started=false st.seen={} end
+ if sameMap(cur,map) then if isHost() then replay() end else leaveLobby() st.created=false st.started=false st.seen={} st.createdMap="" end
 end
 local skillHeld=false
 UIS.InputBegan:Connect(function(i)
@@ -216,7 +231,7 @@ local root=Instance.new("Frame") root.Size=UDim2.new(0,720,0,430) root.Position=
 root.BackgroundColor3=BG root.BorderSizePixel=0 root.Active=true root.Draggable=true root.Parent=gui
 Instance.new("UICorner",root).CornerRadius=UDim.new(0,8)
 local top=Instance.new("Frame") top.Size=UDim2.new(1,0,0,36) top.BackgroundColor3=Color3.fromRGB(16,16,18) top.BorderSizePixel=0 top.Parent=root
-local brand=Instance.new("TextLabel") brand.Size=UDim2.new(0,200,1,0) brand.BackgroundTransparency=1 brand.Text="  Manager v35" brand.TextXAlignment=Enum.TextXAlignment.Left brand.TextColor3=TEXT brand.Font=Enum.Font.Gotham brand.TextSize=16 brand.Parent=top
+local brand=Instance.new("TextLabel") brand.Size=UDim2.new(0,200,1,0) brand.BackgroundTransparency=1 brand.Text="  Manager v36" brand.TextXAlignment=Enum.TextXAlignment.Left brand.TextColor3=TEXT brand.Font=Enum.Font.Gotham brand.TextSize=16 brand.Parent=top
 local closeB=Instance.new("TextButton") closeB.Size=UDim2.new(0,28,0,24) closeB.Position=UDim2.new(1,-34,0,6) closeB.BackgroundColor3=Color3.fromRGB(40,40,46) closeB.Text="_" closeB.TextColor3=TEXT closeB.Parent=top
 local reopen=Instance.new("TextButton") reopen.Size=UDim2.new(0,90,0,28) reopen.Position=UDim2.new(0,16,0,16) reopen.BackgroundColor3=ACC reopen.Text="Manager" reopen.TextColor3=Color3.new(1,1,1) reopen.Visible=false reopen.Parent=gui
 closeB.MouseButton1Click:Connect(function() root.Visible=false reopen.Visible=true end)
@@ -254,11 +269,10 @@ toggle(setBox,"Auto Create (host)","AutoCreate") toggle(setBox,"Auto Join (alts)
 task.spawn(function()
  while gui.Parent do
   local map,diff,lv=pick()
-  sl.Text=string.format("v35 %s\nLevel: %s\n(%s)\nNOW: %s\nNEXT: %s %s\nState: %s\nParty %d/2",LP.Name,tostring(lv),st.lvlSrc,currentDungeon(),map,diff,st.name,seenCount())
+  sl.Text=string.format("v36 %s\nLevel: %s\n(%s)\nNOW: %s\nNEXT: %s %s\nState: %s\nParty %d/2",LP.Name,tostring(lv),st.lvlSrc,currentDungeon(),map,diff,st.name,seenCount())
   task.wait(0.4)
  end
 end)
-print("[DQ] boot level", level(), st.lvlSrc)
 
 if isDungeon() then
  task.spawn(function()
@@ -276,23 +290,30 @@ if isDungeon() then
  end)
 else
  task.spawn(function()
-  print("[DQ] lobby next", pick())
+  print("[DQ] waiting for level, now", level(), st.lvlSrc)
+  local t0=tick()
+  while gui.Parent and level()<=1 and tick()-t0<20 do
+   st.name="WaitLevel"
+   task.wait(0.5)
+  end
+  print("[DQ] using level", level(), st.lvlSrc, "next", pick())
   while gui.Parent and not isDungeon() do
    if isHost() and S.AutoCreate then
-    local wantMap=select(1,pick())
-    local lobby=hostLobby()
-    local have=lobbyMap(lobby)
-    if have~="" and not sameMap(have, wantMap) then
-     st.name="WrongLobby "..have
-     st.created=false st.started=false
-     leaveLobby()
-    elseif have=="" or not lobby then
-     local ok=createLobby()
-     st.created=ok or st.created
-     st.name=ok and ("Created "..wantMap) or "Creating"
+    local wantMap,wantDiff,lv=pick()
+    if lv<=1 then
+     st.name="WaitLevel"
     else
-     st.created=true
-     if S.WaitMembers and not partyReady() then
+     local have=lobbyMap(hostLobby())
+     if (have~="" and not sameMap(have, wantMap)) or (st.createdMap~="" and not sameMap(st.createdMap, wantMap)) then
+      print("[DQ] rebuild", have, st.createdMap, "->", wantMap)
+      st.created=false st.started=false st.createdMap="" st.seen={}
+      leaveLobby()
+      st.name="Rebuild"
+     elseif not st.created then
+      local ok=createLobby()
+      st.created=ok
+      st.name=ok and ("Created "..wantMap) or "Creating"
+     elseif S.WaitMembers and not partyReady() then
       st.started=false st.name="WAIT "..tostring(seenCount()).."/2"
      elseif S.AutoStart and not st.started then
       st.started=true fireStart() st.name="Started"
