@@ -1,7 +1,7 @@
--- DQ v36 wait for real level before create
+-- DQ v37 leaderstats level only
 if getgenv and getgenv().DQRunning then return end
 if getgenv then getgenv().DQRunning = true end
-print("[DQ] v36", game.PlaceId)
+print("[DQ] v37", game.PlaceId)
 repeat task.wait() until game:IsLoaded()
 local Players = game:GetService("Players")
 repeat task.wait() until Players.LocalPlayer
@@ -12,7 +12,7 @@ local UIS = game:GetService("UserInputService")
 local HttpService = game:GetService("HttpService")
 local LogService = game:GetService("LogService")
 
-local URL = "https://raw.githubusercontent.com/Pawan-Tamang/DQ-AutoProgress/main/script.lua?v=36"
+local URL = "https://raw.githubusercontent.com/Pawan-Tamang/DQ-AutoProgress/main/script.lua?v=37"
 pcall(function()
  if getgenv and getgenv().DQQueued then return end
  if getgenv then getgenv().DQQueued = true end
@@ -70,41 +70,30 @@ local PROG = {
 }
 local st={name=isDungeon() and "InDungeon" or "Hub",created=false,joined=false,started=false,seen={},lvl=1,lvlSrc="?",lastCreate=0,lastLeave=0,createdMap=""}
 
+local function dumpLS()
+ local ls=LP:FindFirstChild("leaderstats")
+ if not ls then print("[DQ] no leaderstats") return end
+ local parts={}
+ for _,o in ipairs(ls:GetChildren()) do
+  local ok,val=pcall(function() return o.Value end)
+  table.insert(parts, o.Name.."="..tostring(ok and val or "?"))
+ end
+ print("[DQ] leaderstats", table.concat(parts, " | "))
+end
 local function level()
- local best,src=0,"none"
  local ls=LP:FindFirstChild("leaderstats")
  if ls then
-  for _,name in ipairs({"Level","level","Lvl","LVL"}) do
-   local o=ls:FindFirstChild(name)
-   if o then
-    local n=tonumber(o.Value)
-    if n and n>=1 and n<=300 then best,src=n,"leaderstats."..name end
+  local o=ls:FindFirstChild("Level") or ls:FindFirstChild("level") or ls:FindFirstChild("Lvl")
+  if o then
+   local n=tonumber(o.Value)
+   if n and n>=1 then
+    st.lvl,st.lvlSrc=n,"leaderstats."..o.Name
+    return n
    end
   end
  end
- -- nametag like "75" not "250/250"
- local char=LP.Character
- if char then
-  for _,o in ipairs(char:GetDescendants()) do
-   if o:IsA("TextLabel") or o:IsA("TextButton") then
-    local t=tostring(o.Text or ""):gsub("%s+","")
-    if not t:find("/") then
-     local n=tonumber(t)
-     if n and n>=2 and n<=300 and n>best then best,src=n,"tag."..o.Name end
-    end
-   end
-  end
- end
- for _,o in ipairs(PlayerGui:GetDescendants()) do
-  if o:IsA("TextLabel") or o:IsA("TextButton") then
-   local t=tostring(o.Text or "")
-   local n=tonumber(string.match(t, "^Lv%.?%s*(%d+)$") or string.match(t, "Level%s*:?%s*(%d+)$"))
-   if n and n>=2 and n<=300 and n>best then best,src=n,"gui."..o.Name end
-  end
- end
- if best<1 then best=1 src=src or "default" end
- st.lvl,st.lvlSrc=best,src
- return best
+ st.lvl,st.lvlSrc=1,"waiting"
+ return 1
 end
 local function pick()
  local lv,cur=level(),PROG[1]
@@ -231,7 +220,7 @@ local root=Instance.new("Frame") root.Size=UDim2.new(0,720,0,430) root.Position=
 root.BackgroundColor3=BG root.BorderSizePixel=0 root.Active=true root.Draggable=true root.Parent=gui
 Instance.new("UICorner",root).CornerRadius=UDim.new(0,8)
 local top=Instance.new("Frame") top.Size=UDim2.new(1,0,0,36) top.BackgroundColor3=Color3.fromRGB(16,16,18) top.BorderSizePixel=0 top.Parent=root
-local brand=Instance.new("TextLabel") brand.Size=UDim2.new(0,200,1,0) brand.BackgroundTransparency=1 brand.Text="  Manager v36" brand.TextXAlignment=Enum.TextXAlignment.Left brand.TextColor3=TEXT brand.Font=Enum.Font.Gotham brand.TextSize=16 brand.Parent=top
+local brand=Instance.new("TextLabel") brand.Size=UDim2.new(0,200,1,0) brand.BackgroundTransparency=1 brand.Text="  Manager v37" brand.TextXAlignment=Enum.TextXAlignment.Left brand.TextColor3=TEXT brand.Font=Enum.Font.Gotham brand.TextSize=16 brand.Parent=top
 local closeB=Instance.new("TextButton") closeB.Size=UDim2.new(0,28,0,24) closeB.Position=UDim2.new(1,-34,0,6) closeB.BackgroundColor3=Color3.fromRGB(40,40,46) closeB.Text="_" closeB.TextColor3=TEXT closeB.Parent=top
 local reopen=Instance.new("TextButton") reopen.Size=UDim2.new(0,90,0,28) reopen.Position=UDim2.new(0,16,0,16) reopen.BackgroundColor3=ACC reopen.Text="Manager" reopen.TextColor3=Color3.new(1,1,1) reopen.Visible=false reopen.Parent=gui
 closeB.MouseButton1Click:Connect(function() root.Visible=false reopen.Visible=true end)
@@ -269,9 +258,21 @@ toggle(setBox,"Auto Create (host)","AutoCreate") toggle(setBox,"Auto Join (alts)
 task.spawn(function()
  while gui.Parent do
   local map,diff,lv=pick()
-  sl.Text=string.format("v36 %s\nLevel: %s\n(%s)\nNOW: %s\nNEXT: %s %s\nState: %s\nParty %d/2",LP.Name,tostring(lv),st.lvlSrc,currentDungeon(),map,diff,st.name,seenCount())
+  sl.Text=string.format("v37 %s\nLevel: %s\n(%s)\nNOW: %s\nNEXT: %s %s\nState: %s\nParty %d/2",LP.Name,tostring(lv),st.lvlSrc,currentDungeon(),map,diff,st.name,seenCount())
   task.wait(0.4)
  end
+end)
+
+pcall(function()
+ local ls=LP:FindFirstChild("leaderstats") or LP:WaitForChild("leaderstats",10)
+ local o=ls and (ls:FindFirstChild("Level") or ls:FindFirstChild("level"))
+ if o then o:GetPropertyChangedSignal("Value"):Connect(function()
+  print("[DQ] level changed", o.Value)
+  if st.createdMap~="" then
+   local want=select(1,pick())
+   if not sameMap(st.createdMap, want) then st.created=false st.createdMap="" st.started=false end
+  end
+ end) end
 end)
 
 if isDungeon() then
@@ -290,12 +291,13 @@ if isDungeon() then
  end)
 else
  task.spawn(function()
-  print("[DQ] waiting for level, now", level(), st.lvlSrc)
+  dumpLS()
   local t0=tick()
-  while gui.Parent and level()<=1 and tick()-t0<20 do
+  while gui.Parent and level()<=1 and tick()-t0<25 do
    st.name="WaitLevel"
    task.wait(0.5)
   end
+  dumpLS()
   print("[DQ] using level", level(), st.lvlSrc, "next", pick())
   while gui.Parent and not isDungeon() do
    if isHost() and S.AutoCreate then
@@ -305,7 +307,7 @@ else
     else
      local have=lobbyMap(hostLobby())
      if (have~="" and not sameMap(have, wantMap)) or (st.createdMap~="" and not sameMap(st.createdMap, wantMap)) then
-      print("[DQ] rebuild", have, st.createdMap, "->", wantMap)
+      print("[DQ] rebuild", have or st.createdMap, "->", wantMap)
       st.created=false st.started=false st.createdMap="" st.seen={}
       leaveLobby()
       st.name="Rebuild"
